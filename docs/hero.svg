@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="520" viewBox="0 0 1400 520" role="img" aria-labelledby="title desc">
+  <title id="title">F1 Race Monitor</title>
+  <desc id="desc">A dark pitwall dashboard showing race mode, target lap, rivals and tyre strategy.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#070A0F"/>
+      <stop offset="0.55" stop-color="#0D1520"/>
+      <stop offset="1" stop-color="#071511"/>
+    </linearGradient>
+    <linearGradient id="lime" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#B8FF3D"/>
+      <stop offset="1" stop-color="#00D2BE"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="12" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+      <path d="M48 0H0V48" fill="none" stroke="#243244" stroke-opacity=".25"/>
+    </pattern>
+  </defs>
+  <rect width="1400" height="520" rx="28" fill="url(#bg)"/>
+  <rect width="1400" height="520" rx="28" fill="url(#grid)"/>
+  <path d="M0 420 C220 320 350 500 570 385 S940 290 1400 385" fill="none" stroke="#00D2BE" stroke-opacity=".18" stroke-width="3"/>
+  <path d="M0 455 C240 355 390 515 625 410 S1040 335 1400 430" fill="none" stroke="#B8FF3D" stroke-opacity=".14" stroke-width="2"/>
+
+  <g transform="translate(78 68)">
+    <rect width="8" height="68" rx="4" fill="url(#lime)" filter="url(#glow)"/>
+    <text x="32" y="24" fill="#8FA1B7" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700" letter-spacing="4">LOCAL-FIRST PITWALL</text>
+    <text x="32" y="68" fill="#F5F7FA" font-family="Arial, Helvetica, sans-serif" font-size="48" font-weight="800">F1 RACE MONITOR</text>
+    <text x="32" y="102" fill="#9AA8B8" font-family="Arial, Helvetica, sans-serif" font-size="20">Telemetry · strategy · race radio · analysis</text>
+  </g>
+
+  <g transform="translate(78 235)">
+    <rect width="300" height="188" rx="18" fill="#101923" stroke="#223143"/>
+    <text x="24" y="34" fill="#78899C" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" letter-spacing="2">RACE MODE</text>
+    <text x="24" y="86" fill="#B8FF3D" font-family="Arial, Helvetica, sans-serif" font-size="42" font-weight="900">PUSH</text>
+    <line x1="24" y1="108" x2="276" y2="108" stroke="#263648"/>
+    <text x="24" y="141" fill="#78899C" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700">TARGET LAP</text>
+    <text x="276" y="142" text-anchor="end" fill="#F5F7FA" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700">1:24.680</text>
+    <text x="24" y="169" fill="#78899C" font-family="Arial, Helvetica, sans-serif" font-size="12">LAP 18 / 27</text>
+  </g>
+
+  <g transform="translate(398 235)">
+    <rect width="425" height="188" rx="18" fill="#101923" stroke="#223143"/>
+    <text x="24" y="34" fill="#78899C" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" letter-spacing="2">RIVALS</text>
+    <circle cx="43" cy="78" r="17" fill="#00D2BE"/>
+    <text x="43" y="84" text-anchor="middle" fill="#06110F" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="900">4</text>
+    <text x="76" y="74" fill="#F5F7FA" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700">CAR AHEAD</text>
+    <text x="76" y="96" fill="#8192A5" font-family="Arial, Helvetica, sans-serif" font-size="13">MEDIUM · 8 laps</text>
+    <text x="398" y="84" text-anchor="end" fill="#B8FF3D" font-family="Arial, Helvetica, sans-serif" font-size="27" font-weight="800">+1.4</text>
+    <line x1="24" y1="116" x2="401" y2="116" stroke="#263648"/>
+    <circle cx="43" cy="151" r="17" fill="#E74645"/>
+    <text x="43" y="157" text-anchor="middle" fill="#FFF" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="900">6</text>
+    <text x="76" y="147" fill="#F5F7FA" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700">CAR BEHIND</text>
+    <text x="76" y="169" fill="#8192A5" font-family="Arial, Helvetica, sans-serif" font-size="13">SOFT · closing</text>
+    <text x="398" y="157" text-anchor="end" fill="#FFB44A" font-family="Arial, Helvetica, sans-serif" font-size="27" font-weight="800">-0.9</text>
+  </g>
+
+  <g transform="translate(843 235)">
+    <rect width="479" height="188" rx="18" fill="#101923" stroke="#223143"/>
+    <text x="24" y="34" fill="#78899C" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" letter-spacing="2">PRIORITY</text>
+    <rect x="24" y="54" width="431" height="62" rx="12" fill="#17261D" stroke="#4A6A37"/>
+    <text x="44" y="80" fill="#B8FF3D" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="800" letter-spacing="1">ENGINEER</text>
+    <text x="44" y="103" fill="#F5F7FA" font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="700">BOX NEXT LAP</text>
+    <text x="24" y="148" fill="#8192A5" font-family="Arial, Helvetica, sans-serif" font-size="13">Projected rejoin</text>
+    <text x="455" y="151" text-anchor="end" fill="#F5F7FA" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="800">P7–P8</text>
+    <rect x="24" y="166" width="431" height="5" rx="2.5" fill="#263648"/>
+    <rect x="24" y="166" width="318" height="5" rx="2.5" fill="url(#lime)"/>
+  </g>
+
+  <g transform="translate(1124 72)">
+    <circle cx="88" cy="46" r="45" fill="none" stroke="#223143" stroke-width="8"/>
+    <circle cx="88" cy="46" r="45" fill="none" stroke="url(#lime)" stroke-width="8" stroke-linecap="round" stroke-dasharray="225 58" transform="rotate(-90 88 46)"/>
+    <text x="88" y="43" text-anchor="middle" fill="#F5F7FA" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="900">LIVE</text>
+    <text x="88" y="63" text-anchor="middle" fill="#7F91A4" font-family="Arial, Helvetica, sans-serif" font-size="11">UDP 2025</text>
+  </g>
+</svg>

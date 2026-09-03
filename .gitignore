@@ -1,0 +1,16 @@
+node_modules/
+dist/
+dist-server/
+data/
+work/
+coverage/
+.env
+.env.*
+.gh-config/
+.git-public/
+*.log
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.DS_Store
+Thumbs.db
