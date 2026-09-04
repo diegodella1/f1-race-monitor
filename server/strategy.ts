@@ -213,8 +213,10 @@ export class PitwallStrategy {
 
   private recommend(state:RaceState,ahead:RivalTrend|null,behind:RivalTrend|null,stint:StrategyState['stint'],plan:PitPlan,rules:StrategyRules,now:number){
     const pitting=state.player.pit||state.player.driverStatus===2||state.player.driverStatus===3;
-    if(pitting)return this.setRecommendation(null,state,now);
+    const terminal=['FINISHED','RETIRED'].includes(state.context.lifecycle);
+    if(pitting||terminal)return this.setRecommendation(null,state,now,true);
     const lapsLeft=state.totalLaps?state.totalLaps-state.lap:99;
+    if(lapsLeft<=0)return this.setRecommendation(null,state,now,true);
     let next:EngineerMessage|null=null;
     const make=(id:string,priority:EngineerMessage['priority'],title:string,evidence:string,action:string,confidence:number):EngineerMessage=>({id,priority,title,evidence,action,confidence,createdAt:now,expiresAt:now+12000});
     if(this.lastStop&&state.lap<=this.lastStop.exitLap+1){
@@ -235,39 +237,47 @@ export class PitwallStrategy {
       next=make('strategy-mandatory-window','opportunity','BOX WINDOW: L'+rules.recommendedPitLap,'A second compound is required · projected rejoin P'+plan.rejoinMin+'–P'+plan.rejoinMax+' near '+(plan.rejoinRival||'clear air')+'.','Prepare to box in '+Math.max(0,(rules.recommendedPitLap??state.lap)-state.lap)+' laps.',94);
     }else if(stint.cleanLaps>=3){
       const source=plan.pitLossSource==='OBSERVED'?'learned':'estimated';
-      if(lapsLeft>1&&(stint.wear>=70||(stint.degradationMs!==null&&stint.degradationMs>=350&&stint.age>=5)))next=make('strategy-box','action','BOX THIS LAP','Tyre wear '+stint.wear+'% · degradation '+((stint.degradationMs??0)/1000).toFixed(2)+'s/lap · rejoin P'+plan.rejoinMin+'–P'+plan.rejoinMax+'.','Pit now; the current stint is losing more time than it protects.',96);
+      if(lapsLeft>1&&(stint.wear>=70||(stint.cleanLaps>=4&&stint.wear>=40&&stint.degradationMs!==null&&stint.degradationMs>=350&&stint.age>=6)))next=make('strategy-box','action','BOX THIS LAP','Tyre wear '+stint.wear+'% · degradation '+((stint.degradationMs??0)/1000).toFixed(2)+'s/lap · rejoin P'+plan.rejoinMin+'–P'+plan.rejoinMax+'.','Pit now; the current stint is losing more time than it protects.',96);
       else if(behind?.pit&&behind.gap!==null&&behind.gap<=3&&stint.wear>=40&&(plan.stayOneMoreCostSeconds??0)>=.25)next=make('strategy-cover','action','COVER THE STOP',behind.name+' stopped from '+behind.gap.toFixed(1)+'s behind · staying out costs '+(plan.stayOneMoreCostSeconds??0).toFixed(1)+'s.','Box this lap unless the projected rejoin traffic is heavy.',Math.max(90,plan.confidence));
       else if(ahead?.pit&&stint.wear<65&&(plan.overcutGainSeconds??0)>=.5)next=make('strategy-overcut','opportunity','OVERCUT: STAY OUT',ahead.name+' stopped · modeled overcut +'+(plan.overcutGainSeconds??0).toFixed(1)+'s.','Stay out one lap, push in clean air, then reassess.',plan.confidence);
       else if(ahead&&!ahead.pit&&ahead.gap!==null&&ahead.gap<=3&&stint.age>=4&&(plan.undercutGainSeconds??0)>=.6&&plan.traffic!=='HEAVY')next=make('strategy-undercut','opportunity','UNDERCUT AVAILABLE',ahead.name+' is '+ahead.gap.toFixed(1)+'s ahead · modeled gain '+(plan.undercutGainSeconds??0).toFixed(1)+'s · rejoin P'+plan.rejoinMin+'–P'+plan.rejoinMax+'.','Box before the car ahead; the model favors the undercut.',plan.confidence);
       else if(behind&&behind.gap!==null&&behind.gap>plan.pitLossSeconds+1.5&&stint.wear>=55&&(plan.freshTyreGainSeconds??0)>=1)next=make('strategy-free-stop','opportunity','FREE STOP AVAILABLE',behind.gap.toFixed(1)+'s behind versus '+plan.pitLossSeconds.toFixed(1)+'s '+source+' pit loss.','Use the gap for fresh tyres before it closes.',Math.max(88,plan.confidence));
     }
+    if(next&&['strategy-overcut','strategy-undercut','strategy-cover'].includes(next.id))next.validUntilLap=state.lap+1;
     return this.setRecommendation(next,state,now);
   }
 
-  private setRecommendation(next:EngineerMessage|null,state:RaceState,now:number){
+  private setRecommendation(next:EngineerMessage|null,state:RaceState,now:number,forceClear=false){
     const old=this.activeRecommendation;
+    const latchable=old&&['strategy-overcut','strategy-undercut','strategy-cover'].includes(old.id)&&old.expiresAt>now&&(old.validUntilLap??state.lap)>=state.lap;
+    if(!next&&!forceClear&&latchable)return old;
     if(old&&old.id!==next?.id)this.record(old.id,state.lap,now,'RESOLVED','Condition cleared or a higher-value call replaced it');
     if(!next){this.activeRecommendation=null;return null;}
-    if(old?.id===next.id)next.createdAt=old.createdAt;
+    if(old?.id===next.id){next.createdAt=old.createdAt;next.expiresAt=old.expiresAt;}
     else this.record(next.id,state.lap,now,'EMITTED',next.evidence);
     this.activeRecommendation=next;
     return next;
   }
 
   private desiredMode(state:RaceState,ahead:RivalTrend|null,behind:RivalTrend|null,recommendation:EngineerMessage|null,status:StrategyState['status']):RaceMode {
+    if(['FINISHED','RETIRED'].includes(state.context.lifecycle))return 'MANAGE';
     if(state.flag==='RED'||state.safetyCar!=='NONE')return 'SAFETY';
     if(state.player.pit||state.player.driverStatus===2||state.player.driverStatus===3||recommendation?.id.startsWith('strategy-box'))return 'BOX';
     if(this.lastStop&&state.lap<=this.lastStop.exitLap+2)return 'PUSH';
+    const rearCritical=!!behind&&((behind.gap!==null&&behind.gap<=1)||(behind.catchLaps!==null&&behind.catchLaps<=2));
+    const frontCritical=!!ahead&&((ahead.gap!==null&&ahead.gap<=1.2)||(ahead.catchLaps!==null&&ahead.catchLaps<=2));
+    if(this.raceMode==='ATTACK'&&!rearCritical&&ahead&&((ahead.gap!==null&&ahead.gap<=2.5)||(ahead.catchLaps!==null&&ahead.catchLaps<=5)))return 'ATTACK';
+    if(this.raceMode==='DEFEND'&&!frontCritical&&behind&&((behind.gap!==null&&behind.gap<=2)||(behind.catchLaps!==null&&behind.catchLaps<=4)))return 'DEFEND';
     if(behind&&((behind.gap!==null&&behind.gap<=1.5)||(behind.catchLaps!==null&&behind.catchLaps<=3)))return 'DEFEND';
     if(ahead&&((ahead.gap!==null&&ahead.gap<=2)||(ahead.catchLaps!==null&&ahead.catchLaps<=4)))return 'ATTACK';
     if(state.player.position===1&&behind&&behind.gap!==null&&behind.gap>=3)return 'MANAGE';
-    return status==='READY'?'MANAGE':'LEARNING';
+    return status==='READY'||this.raceMode!=='LEARNING'?'MANAGE':'LEARNING';
   }
 
   private updateMode(desired:RaceMode,state:RaceState,now:number){
     if(desired===this.raceMode)return this.raceMode;
-    const immediate=desired==='SAFETY'||desired==='BOX';
-    if(immediate||this.raceMode==='LEARNING'||state.lap>this.modeChangedLap){
+    const immediate=desired==='SAFETY'||desired==='BOX'||this.raceMode==='SAFETY'||this.raceMode==='BOX';
+    if(immediate||this.raceMode==='LEARNING'||state.lap-this.modeChangedLap>=2){
       const previous=this.raceMode;this.raceMode=desired;this.modeChangedLap=state.lap;
       this.record('mode-'+desired.toLowerCase()+'-'+state.lap,state.lap,now,'EMITTED',previous+' → '+desired);
     }

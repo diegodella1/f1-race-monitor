@@ -43,9 +43,29 @@ test('calls a stop only after enough reliable degradation evidence',()=>{
   model.analyze(race(5,2.6,2));
   model.analyze(race(6,2.4,2.1,'1:30.000',45));
   model.analyze(race(7,2.2,2.2,'1:30.400',48));
-  const result=model.analyze(race(8,2,2.3,'1:30.800',58));
+  model.analyze(race(8,2,2.3,'1:30.800',54));
+  model.analyze(race(9,1.9,2.4,'1:31.200',56));
+  const result=model.analyze(race(10,1.8,2.5,'1:31.600',58));
   assert.equal(result.strategy.recommendation?.id,'strategy-box');
   assert.equal(result.strategy.recommendation?.priority,'action');
+});
+
+test('never recommends a stop on the final lap or after the finish',()=>{
+  const model=new PitwallStrategy(),state=race(30,2,2,'1:31.000',80);state.context.lifecycle='FINAL_LAP';
+  assert.equal(model.analyze(state).strategy.recommendation,null);
+  state.context.lifecycle='FINISHED';state.status='PAUSED';
+  assert.equal(model.analyze(state).strategy.recommendation,null);
+  assert.notEqual(model.analyze(state).strategy.raceMode,'BOX');
+});
+
+test('does not call a stop from noisy degradation with low tyre wear',()=>{
+  const model=new PitwallStrategy();
+  model.analyze(race(4,8,4));
+  model.analyze(race(5,8,4,'1:30.000',12));
+  model.analyze(race(6,8,4,'1:30.500',14));
+  model.analyze(race(7,8,4,'1:31.000',15));
+  const result=model.analyze(race(8,8,4,'1:31.500',16));
+  assert.equal(result.strategy.recommendation,null);
 });
 
 test('learns observed pit loss from the change in gap to the leader',()=>{
@@ -123,4 +143,18 @@ test('sets a useful race mode and lap-time target while leading',()=>{
   const result=model.analyze(state);
   assert.equal(result.strategy.raceMode,'MANAGE');
   assert.equal(result.strategy.targetLapTime,'1:26.600');
+});
+
+test('holds tactical modes for two laps and never returns to learning mid-race',()=>{
+  const model=new PitwallStrategy();
+  model.analyze(race(1,3,3));
+  model.analyze(race(2,3,3,'1:30.000'));
+  const attack=model.analyze(race(3,1.1,3,'1:30.100'));
+  assert.equal(attack.strategy.raceMode,'ATTACK');
+  const threat=race(4,3,.8,'1:30.200');
+  assert.equal(model.analyze(threat).strategy.raceMode,'ATTACK');
+  const defend=race(5,3,.8,'1:30.300');
+  assert.equal(model.analyze(defend).strategy.raceMode,'DEFEND');
+  const newStint=race(7,5,5,'—');newStint.player.tyre='SOFT';newStint.player.tyreAge=0;
+  assert.notEqual(model.analyze(newStint).strategy.raceMode,'LEARNING');
 });

@@ -22,3 +22,10 @@ test('lap packet parses distance and keeps the last reliable impossible interval
 test('car status packet parses fuel projection',()=>{const state=initialState();state.sessionUid='123';const buffer=packet(7,1445),o=29+59;buffer.writeFloatLE(14.9,o+5);buffer.writeFloatLE(-0.27,o+13);buffer.writeUInt8(17,o+26);buffer.writeFloatLE(2000000,o+37);const result=parsePacket(buffer,state)!;assert.equal(result.player.tyre,'MEDIUM');assert.ok(Math.abs(result.player.fuelRemainingLaps+.27)<.001);assert.equal(result.player.ers,50);});
 
 test('event code identifies session end and flashback packets',()=>{const end=packet(3,45);end.write('SEND',29,'ascii');const flashback=packet(3,45);flashback.write('FLBK',29,'ascii');assert.equal(packetEventCode(end),'SEND');assert.equal(packetEventCode(flashback),'FLBK');});
+
+test('event packets expose final lifecycle and normalized nearby incidents',()=>{
+  const state=initialState();state.status='CONNECTED';state.sessionUid='123';state.sessionLinkId=8;state.sessionType='Race';state.context.category='RACE';state.context.lifecycle='ACTIVE';state.lap=8;state.drivers=[{vehicleIndex:0,position:1,name:'NORRIS',team:'McLaren',lap:8,sector:1,gap:'LEADER',interval:'—',tyre:'MEDIUM',tyreAge:8,pit:false},{vehicleIndex:1,position:2,name:'PLAYER',team:'Ferrari',lap:8,sector:1,gap:'+1.000',interval:'+1.000',tyre:'SOFT',tyreAge:8,pit:false}];
+  const collision=packet(3,45);collision.write('COLL',29,'ascii');collision.writeUInt8(0,33);collision.writeUInt8(1,34);
+  const afterCollision=parsePacket(collision,state)!;assert.equal(afterCollision.context.incidents[0].kind,'COLLISION');assert.match(afterCollision.alerts[0].detail,/NORRIS/);
+  const end=packet(3,45);end.write('SEND',29,'ascii');const finished=parsePacket(end,afterCollision)!;assert.equal(finished.context.lifecycle,'FINISHED');assert.equal(finished.flag,'CHEQUERED');
+});

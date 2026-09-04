@@ -13,9 +13,14 @@ export class SessionStore {
   constructor(path:string){
     mkdirSync(dirname(path),{recursive:true});
     this.db=new DatabaseSync(path);
-    this.db.exec(`CREATE TABLE IF NOT EXISTS sessions(id INTEGER PRIMARY KEY, started_at INTEGER NOT NULL, ended_at INTEGER, track TEXT, mode TEXT NOT NULL, laps INTEGER DEFAULT 0, packets INTEGER DEFAULT 0); CREATE TABLE IF NOT EXISTS snapshots(id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL REFERENCES sessions(id), recorded_at INTEGER NOT NULL, lap INTEGER, state_json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS decision_events(id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL REFERENCES sessions(id), recorded_at INTEGER NOT NULL, lap INTEGER NOT NULL, source TEXT NOT NULL, event_id TEXT NOT NULL, status TEXT NOT NULL, reason TEXT NOT NULL, UNIQUE(session_id,source,event_id,lap,status)); CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE INDEX IF NOT EXISTS idx_snapshots_session_time ON snapshots(session_id, recorded_at); CREATE INDEX IF NOT EXISTS idx_decisions_session_time ON decision_events(session_id, recorded_at);`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS sessions(id INTEGER PRIMARY KEY, started_at INTEGER NOT NULL, ended_at INTEGER, track TEXT, mode TEXT NOT NULL, laps INTEGER DEFAULT 0, packets INTEGER DEFAULT 0); CREATE TABLE IF NOT EXISTS snapshots(id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL REFERENCES sessions(id), recorded_at INTEGER NOT NULL, lap INTEGER, state_json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS decision_events(id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL REFERENCES sessions(id), recorded_at INTEGER NOT NULL, lap INTEGER NOT NULL, source TEXT NOT NULL, event_id TEXT NOT NULL, status TEXT NOT NULL, reason TEXT NOT NULL, score INTEGER, confidence INTEGER, priority TEXT, title TEXT, category TEXT, UNIQUE(session_id,source,event_id,lap,status)); CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE INDEX IF NOT EXISTS idx_snapshots_session_time ON snapshots(session_id, recorded_at); CREATE INDEX IF NOT EXISTS idx_decisions_session_time ON decision_events(session_id, recorded_at);`);
     this.addColumn('sessions','session_uid','TEXT');
     this.addColumn('sessions','session_link_id','INTEGER DEFAULT 0');
+    this.addColumn('decision_events','score','INTEGER');
+    this.addColumn('decision_events','confidence','INTEGER');
+    this.addColumn('decision_events','priority','TEXT');
+    this.addColumn('decision_events','title','TEXT');
+    this.addColumn('decision_events','category','TEXT');
     this.db.exec(`UPDATE sessions SET ended_at=COALESCE((SELECT MAX(recorded_at) FROM snapshots WHERE session_id=sessions.id),started_at) WHERE ended_at IS NULL; UPDATE sessions SET mode=COALESCE((SELECT json_extract(state_json,'$.sessionType') FROM snapshots WHERE session_id=sessions.id AND json_extract(state_json,'$.sessionType')!='Unknown' ORDER BY recorded_at DESC LIMIT 1),mode) WHERE mode='Unknown'; PRAGMA optimize;`);
   }
 
@@ -39,15 +44,16 @@ export class SessionStore {
     const key=this.key(state);
     if(this.sessionId&&this.sessionKey!==key)this.stop(state.updatedAt);
     if(!this.sessionId)this.start(state);
-    if(Date.now()-this.lastSave<5000)return;
+    const decisionInsert=this.db.prepare('INSERT OR IGNORE INTO decision_events(session_id,recorded_at,lap,source,event_id,status,reason,score,confidence,priority,title,category) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)');
+    for(const [source,entries] of [['strategy',state.strategy.decisions],['engineer',state.engineer.log]] as const)for(const entry of entries){
+      const decisionKey=source+':'+entry.id+':'+entry.lap+':'+entry.status;
+      if(!this.savedDecisionKeys.has(decisionKey)){decisionInsert.run(this.sessionId,entry.at,entry.lap,source,entry.id,entry.status,entry.reason,entry.score??null,entry.confidence??null,entry.priority??null,entry.title??null,entry.category??null);this.savedDecisionKeys.add(decisionKey);}
+    }
+    const terminal=['FINISHED','RETIRED'].includes(state.context.lifecycle);
+    if(!terminal&&Date.now()-this.lastSave<2000)return;
     this.lastSave=Date.now();
     this.db.prepare('INSERT INTO snapshots(session_id,recorded_at,lap,state_json) VALUES(?,?,?,?)').run(this.sessionId,state.updatedAt,state.lap,JSON.stringify(state));
     this.db.prepare('UPDATE sessions SET track=?,mode=?,laps=?,packets=? WHERE id=?').run(state.track,state.sessionType,state.lap,state.packetCount,this.sessionId);
-    const decisionInsert=this.db.prepare('INSERT OR IGNORE INTO decision_events(session_id,recorded_at,lap,source,event_id,status,reason) VALUES(?,?,?,?,?,?,?)');
-    for(const [source,entries] of [['strategy',state.strategy.decisions],['engineer',state.engineer.log]] as const)for(const entry of entries){
-      const decisionKey=source+':'+entry.id+':'+entry.lap+':'+entry.status;
-      if(!this.savedDecisionKeys.has(decisionKey)){decisionInsert.run(this.sessionId,entry.at,entry.lap,source,entry.id,entry.status,entry.reason);this.savedDecisionKeys.add(decisionKey);}
-    }
   }
 
   stop(at=Date.now()){
@@ -61,7 +67,15 @@ export class SessionStore {
   close(){this.stop();this.db.close();}
 
   list(){return this.db.prepare('SELECT id,started_at AS startedAt,ended_at AS endedAt,track,mode,laps,packets FROM sessions ORDER BY started_at DESC LIMIT 20').all();}
-  decisions(sessionId:number){return this.db.prepare('SELECT recorded_at AS recordedAt,lap,source,event_id AS eventId,status,reason FROM decision_events WHERE session_id=? ORDER BY recorded_at').all(sessionId);}
+  decisions(sessionId:number){return this.db.prepare('SELECT recorded_at AS recordedAt,lap,source,event_id AS eventId,status,reason,score,confidence,priority,title,category FROM decision_events WHERE session_id=? ORDER BY recorded_at').all(sessionId);}
+  replay(sessionId:number,limit=2500){const rows=this.db.prepare('SELECT recorded_at AS recordedAt,lap,state_json AS stateJson FROM snapshots WHERE session_id=? ORDER BY recorded_at LIMIT ?').all(sessionId,Math.max(1,Math.min(10000,limit))) as {recordedAt:number;lap:number;stateJson:string}[];return rows.map(row=>({recordedAt:row.recordedAt,lap:row.lap,state:JSON.parse(row.stateJson) as RaceState}));}
+  report(sessionId:number){
+    const session=this.db.prepare('SELECT id,started_at AS startedAt,ended_at AS endedAt,track,mode,laps,packets FROM sessions WHERE id=?').get(sessionId);
+    if(!session)return null;
+    const snapshots=this.db.prepare(`SELECT COUNT(*) AS frames,ROUND(AVG(CAST(json_extract(state_json,'$.telemetry.score') AS REAL)),1) AS averageTelemetryScore,MIN(CAST(json_extract(state_json,'$.telemetry.score') AS INTEGER)) AS minimumTelemetryScore FROM snapshots WHERE session_id=?`).get(sessionId);
+    const decisions=this.db.prepare('SELECT source,status,COUNT(*) AS count FROM decision_events WHERE session_id=? GROUP BY source,status').all(sessionId) as {source:string;status:string;count:number}[];
+    return {session,snapshots,decisions:Object.fromEntries(decisions.map(row=>[row.source+':'+row.status,row.count]))};
+  }
   loadSettings(defaults:Settings){const rows=this.db.prepare('SELECT key,value FROM settings').all() as {key:string,value:string}[];const saved=Object.fromEntries(rows.map(r=>[r.key,JSON.parse(r.value)]));return {...defaults,...saved} as Settings;}
   saveSettings(settings:Settings){const statement=this.db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value');for(const [key,value] of Object.entries(settings))statement.run(key,JSON.stringify(value));}
 }

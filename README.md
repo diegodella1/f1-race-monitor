@@ -32,7 +32,7 @@ The default HUD tells you what is happening. A race engineer should help you dec
 - **Real car state:** wing, floor, sidepod, gearbox, engine, temperatures and tyre wear.
 - **Every session type:** tailored views for practice, qualifying and race.
 
-## Current release: V2.3C
+## Current release: V2.6 — Race Engineer Narrative
 
 | Area | What you get |
 | --- | --- |
@@ -42,6 +42,15 @@ The default HUD tells you what is happening. A race engineer should help you dec
 | Race radio | Browser speech in Spanish or English with deduplication and urgency |
 | Analysis | Per-lap throttle/brake traces and driving-performance summaries |
 | Reliability | Pause tolerance, WAITING/CONNECTED state and persisted session decisions |
+| Telemetry trust | Live health score, packet freshness and confidence-aware tactical calls |
+| Replay | Two-second session frames, enriched decision logs and accelerated offline analysis |
+| Proactive engineer | Decision scoring, message families, NOW/NEXT actions and quiet-race outlooks |
+| Decision memory | Persistent damage becomes known context, respects a no-repair stop and only interrupts again when it escalates |
+| Race narrative | One final-lap call, a factual chequered-flag message and a persisted session summary |
+| Rival policy | Stable multi-lap trends, actionable gap bands and reset-safe calls when the rival changes |
+| Race Control | Normalized collisions and retirements, with voice reserved for the player and immediate rivals |
+| Strategy guardrails | No terminal-lap box calls, stronger degradation evidence and short-lived tactical opportunity latching |
+| Adaptive layout | Dedicated race, qualifying and practice workspaces with separate tablet and desktop compositions |
 
 ## Quick start
 
@@ -84,16 +93,15 @@ In the game, open **Settings → Telemetry Settings** and use:
 | UDP IP Address | The LAN IP shown by F1 Race Monitor |
 | UDP Port | `20777` by default |
 | UDP Send Rate | 20 Hz |
-| UDP Format | 2025 |
+| UDP Format | 2026 |
 
 The app deliberately ignores self-assigned `169.254.x.x` interfaces and prefers private `192.168.x.x`, `10.x.x.x` or `172.16–31.x.x` addresses.
 
-## The six screens
+## The five screens
 
-- **Race** — the pitwall: rivals, trend, strategy window, car condition and the single next action.
+- **Pit Wall** — an adaptive race, qualifying or practice workspace with one immediate action.
 - **Timing** — a scan-friendly classification with lap, gap, interval, sectors, tyres and team colour.
-- **Tyres** — wear, temperature, pressure, stint age and compound context.
-- **Car** — live controls, energy, temperatures, damage and component health.
+- **Car** — live controls, energy, four-wheel temperatures and wear, damage and component health.
 - **Analysis** — lap-by-lap braking/throttle traces and actionable driving comparisons.
 - **Settings** — connection health, LAN QR, UDP configuration, demo mode and radio preferences.
 
@@ -101,7 +109,7 @@ The app deliberately ignores self-assigned `169.254.x.x` interfaces and prefers 
 
 ```mermaid
 flowchart LR
-    A[F1 25<br/>PlayStation · Xbox · PC] -->|UDP 2025| B[Packet parser]
+    A[F1 25<br/>PlayStation · Xbox · PC] -->|UDP 2026| B[Packet parser]
     B --> C[Normalized RaceState]
     C --> D[Coach + strategy engine]
     D --> E[Socket.IO]
@@ -121,6 +129,9 @@ The backend validates F1 25 packets, normalizes partial updates into one `RaceSt
 | `npm run check` | Type-check backend and frontend |
 | `npm run build` | Create production frontend and backend builds |
 | `npm start` | Serve the production build |
+| `npm run replay -- --session 12` | Re-run the engineer against a saved session |
+
+Saved-session diagnostics are also available through `/api/sessions/:id/report`, `/api/sessions/:id/decisions` and `/api/sessions/:id/replay`.
 
 ## Privacy and scope
 

@@ -13,5 +13,7 @@ test('stores only identified phases and closes each phase separately',()=>{
   const race={...q1,sessionLinkId:11,sessionType:'Race',context:{...q1.context,category:'RACE' as const},strategy:{...q1.strategy,decisions:[{id:'strategy-box-next',lap:6,at:2000,status:'EMITTED' as const,reason:'Mandatory stop'}]},engineer:{...q1.engineer,log:[{id:'strategy-box-next',lap:6,at:2001,status:'EMITTED' as const,reason:'Highest value'}]},updatedAt:2000};store.save(race);store.stop(3000);
   const sessions=store.list() as {id:number;mode:string;endedAt:number|null}[];assert.deepEqual(sessions.map(x=>x.mode),['Race','Qualifying 1']);assert.ok(sessions.every(x=>x.endedAt!==null));
   const decisions=store.decisions(sessions[0].id) as {source:string;eventId:string}[];assert.deepEqual(decisions.map(x=>x.source),['strategy','engineer']);assert.ok(decisions.every(x=>x.eventId==='strategy-box-next'));
+  const replay=store.replay(sessions[0].id),report=store.report(sessions[0].id);
+  assert.ok(report);assert.equal(replay.length,1);assert.equal(replay[0].state.sessionType,'Race');assert.equal(Number(report.snapshots?.frames),1);
   store.close();rmSync(file,{force:true});
 });

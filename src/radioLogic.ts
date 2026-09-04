@@ -3,16 +3,31 @@ import type { EngineerMessage, RaceState } from './types';
 export function selectRadioMessage(state:RaceState):EngineerMessage|null {
   const engineer=state.engineer.primary,coach=state.coach.message;
   if(engineer&&engineer.priority!=='info')return engineer;
-  return coach||engineer||null;
+  if(coach)return coach;
+  return engineer?.id.startsWith('pace-outlook-status-')?null:engineer||null;
 }
 
 export function radioText(message:EngineerMessage,state:RaceState):string {
   const id=message.id,turn=message.title.match(/CORNER\s+(\d+)/i)?.[1]||'';
   const ahead=state.strategy.ahead,behind=state.strategy.behind;
+  const aheadGap=ahead?.gap,behindGap=behind?.gap;
+  if(id==='final-lap'){
+    if(behindGap!==null&&behindGap!==undefined&&behindGap<=1.2)return `Última vuelta. ${behind?.name||'El de atrás'} está a ${behindGap.toFixed(1)}. Defendé las salidas y traelo a casa.`;
+    if(aheadGap!==null&&aheadGap!==undefined&&aheadGap<=1.5)return `Última vuelta. ${ahead?.name||'El de adelante'} está a ${aheadGap.toFixed(1)}. Usá la batería si la oportunidad es limpia.`;
+    return `Última vuelta. Posición ${state.player.position}. Sin riesgos innecesarios, traelo a casa.`;
+  }
+  if(id==='race-finished'){
+    const summary=state.sessionSummary,delta=summary?.positionsGained??0,movement=delta>0?` Ganaste ${delta} ${delta===1?'posición':'posiciones'}.`:delta<0?` Perdiste ${Math.abs(delta)} ${delta===-1?'posición':'posiciones'}.`:'';
+    return `Bandera a cuadros. Posición ${summary?.finalPosition||state.player.position}.${movement} Buen trabajo.`;
+  }
+  if(id==='race-retired')return 'Carrera terminada. Detené el auto de forma segura y seguí a control de carrera.';
+  if(id.startsWith('incident-collision-'))return message.priority==='critical'?'Contacto. Revisá dirección y daños antes de atacar la próxima curva.':'Accidente cerca. Preparáte para una amarilla y no tomes riesgos.';
+  if(id.startsWith('incident-retirement-'))return 'El rival inmediato se retiró. Reordenamos objetivos; mantené el ritmo.';
   if(id==='red-flag')return 'Bandera roja. Bajá la velocidad y seguí las indicaciones.';
   if(id==='safety-car')return state.safetyCar==='VSC'?'Virtual Safety Car. Respetá el delta.':'Safety Car. Respetá el delta y prepará la estrategia.';
   if(id==='severe-damage')return 'Daño grave en el auto. Entrá a boxes si podés controlarlo.';
   if(id==='car-damage')return 'El daño está afectando el ritmo. Revisá el comportamiento esta vuelta.';
+  if(id.startsWith('damage-')){const part=id.split('-')[1],label=part==='frontWing'?'alerón delantero':part==='rearWing'?'alerón trasero':part==='sidepod'?'pontones':part==='floor'?'piso':part==='diffuser'?'difusor':part==='gearbox'?'caja':part==='engine'?'motor':part==='brakes'?'frenos':'auto';return message.priority==='critical'?`Daño grave en ${label}. Entrá a boxes si el auto no es seguro.`:`Daño en ${label}. Evaluá el comportamiento esta vuelta.`;}
   if(id==='tyre-wear')return 'Neumáticos críticos. Entrá a boxes en la próxima oportunidad segura.';
   if(id==='hot-tyres')return 'Neumáticos sobrecalentados. Evitá deslizar durante una vuelta.';
   if(id==='low-fuel')return 'Falta combustible. Levantá antes y ahorrá inmediatamente.';
@@ -20,10 +35,10 @@ export function radioText(message:EngineerMessage,state:RaceState):string {
   if(id==='low-ers')return 'Batería baja. Cargá energía antes del próximo ataque.';
   if(id==='pit-window')return 'Ventana de boxes abierta. Revisá tráfico y neumáticos.';
   if(id==='ahead-pitting')return 'El auto de adelante entró a boxes. Empujá con pista libre.';
-  if(id.startsWith('drs-attack-'))return `${ahead?.name||'El auto de adelante'} entró en rango de DRS. Prepará el ataque.`;
-  if(id.startsWith('drs-defend-'))return `${behind?.name||'El auto de atrás'} entró en rango de DRS. Priorizá la salida.`;
-  if(id.startsWith('prediction-ahead-')){const eta=Math.max(1,Math.ceil(ahead?.catchLaps??1));return `Ganás ${Math.abs(ahead?.rate??0).toFixed(1)} segundos por vuelta. Alcanzás a ${ahead?.name||'el auto de adelante'} en ${eta} vueltas.`;}
-  if(id.startsWith('prediction-behind-')){const eta=Math.max(1,Math.ceil(behind?.catchLaps??1));return `${behind?.name||'El auto de atrás'} te alcanza en ${eta} vueltas. Cuidá las salidas y prepará la defensa.`;}
+  if(id.startsWith('drs-attack-'))return `${ahead?.name||'El de adelante'} está a ${aheadGap?.toFixed(1)??'menos de uno'}. Tenés DRS; prepará el ataque.`;
+  if(id.startsWith('drs-defend-'))return `${behind?.name||'El de atrás'} quedó a ${behindGap?.toFixed(1)??'menos de uno'}. Va a tener DRS; priorizá la salida.`;
+  if(id.startsWith('prediction-ahead-')){const eta=Math.max(1,Math.ceil(ahead?.catchLaps??1));return `Le descontás ${Math.abs(ahead?.rate??0).toFixed(1)} por vuelta a ${ahead?.name||'el de adelante'}. Lo alcanzás en ${eta} ${eta===1?'vuelta':'vueltas'}.`;}
+  if(id.startsWith('prediction-behind-')){const eta=Math.max(1,Math.ceil(behind?.catchLaps??1));return `${behind?.name||'El de atrás'} viene recortando. Puede alcanzarte en ${eta} ${eta===1?'vuelta':'vueltas'}; cuidá las salidas.`;}
   if(id==='catching-ahead')return `Te acercás a ${ahead?.name||'el auto de adelante'}. Mantené la presión.`;
   if(id==='defend')return `${behind?.name||'El auto de atrás'} está en rango de DRS. Priorizá la salida.`;
   if(id==='closing-behind')return `${behind?.name||'El auto de atrás'} se acerca. Evitá errores y prepará la defensa.`;
