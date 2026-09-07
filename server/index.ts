@@ -1,3 +1,6 @@
+import { LatestStateStream } from './stateStream.js';
+import type { RaceState } from './types.js';
+import { radioBatchSchema, radioQuerySchema } from './radio-events.js';
 import express from 'express'; import cors from 'cors'; import dgram from 'node:dgram'; import os from 'node:os'; import path from 'node:path'; import { writeFileSync } from 'node:fs'; import { createServer } from 'node:http'; import { Server } from 'socket.io'; import QRCode from 'qrcode'; import { z } from 'zod';
 import { initialState,demoState } from './state.js'; import { packetEventCode,parsePacket } from './parser.js'; import { SessionStore } from './db.js'; import type { Settings } from './types.js';
 import { RaceEngineer } from './intelligence.js';
@@ -14,20 +17,48 @@ const engineer=new RaceEngineer();
 const coach=new DrivingCoach();
 const strategy=new PitwallStrategy();
 const telemetry=new TelemetryMonitor();
-function publish(){state={...state,telemetry:telemetry.quality(state)};state=coach.analyze(state);state=strategy.analyze(state);state=engineer.analyze(state);io.emit('raceState',state);if(settings.autoSave&&state.status!=='WAITING')store.save(state);}
+const streams=new Map<string,LatestStateStream<RaceState>>();
+let streamDirty=false;
+const streamTimer=setInterval(()=>{
+  const now=Date.now();
+  for(const stream of streams.values())stream.flush(now);
+  if(streamDirty){io.to('legacy-state').volatile.emit('raceState',state);streamDirty=false;}
+},100);
+function publish(){state={...state,telemetry:telemetry.quality(state)};state=coach.analyze(state);state=strategy.analyze(state);state=engineer.analyze(state);for(const stream of streams.values())stream.update(state);streamDirty=true;if(settings.autoSave&&state.status!=='WAITING')store.save(state);}
 function recordPacket(msg:Buffer,source:string,valid:boolean){const id=msg.length>6?msg.readUInt8(6):-1,key=`${id}:${msg.length}`,now=Date.now(),old=diagnostics.packets[key];diagnostics.source=source;if(valid)diagnostics.validPackets++;else diagnostics.invalidPackets++;diagnostics.packets[key]=old?{...old,count:old.count+1,lastSeen:now}:{id,size:msg.length,count:1,firstSeen:now,lastSeen:now,sample:msg.subarray(0,Math.min(160,msg.length)).toString('base64')};if(now-lastDiagnosticWrite>1000){lastDiagnosticWrite=now;writeFileSync(path.resolve('data/telemetry-diagnostics.json'),JSON.stringify({...diagnostics,currentState:state},null,2));}}
 function stopSources(){if(udp){udp.close();udp=null;}if(demoTimer){clearInterval(demoTimer);demoTimer=null;}if(disconnectTimer)clearTimeout(disconnectTimer);store.stop();}
 function startSource(){stopSources();state=initialState();engineer.reset();coach.reset();strategy.reset();telemetry.reset();tick=0;if(settings.demoMode){demoTimer=setInterval(()=>{state=demoState(tick++,state,settings.demoSession);publish();},500);return;}
   udp=dgram.createSocket('udp4');udp.on('message',(msg,rinfo)=>{const event=packetEventCode(msg),parsed=parsePacket(msg,state);telemetry.observe(msg,!!parsed,rinfo.address);recordPacket(msg,rinfo.address,!!parsed);if(parsed){state=parsed;if(event==='FLBK'){engineer.reset();coach.reset();strategy.reset();state={...state,alerts:[],sessionSummary:null,context:{...state.context,lifecycle:'ACTIVE',incidents:[]},engineer:{primary:null,next:null,secondary:[],conditions:[],log:[],metrics:{candidates:0,eligible:0,suppressed:0,lastMessageLap:0,silenceReason:'Flashback · relearning current race state'}},coach:{status:'LEARNING',lapsLearned:0,cornersLearned:0,message:null,analysis:{currentLap:state.lap,referenceLap:null,referenceLapTime:'—',current:[],reference:[],corners:[],insights:[],quality:{invalid:false,pit:false,unsafe:false}}}};}publish();if(event==='SEND')store.stop(state.updatedAt);if(disconnectTimer)clearTimeout(disconnectTimer);disconnectTimer=setTimeout(()=>{if(state.status==='CONNECTED'){state={...state,status:'PAUSED',updatedAt:Date.now()};publish();}},2500);}});udp.on('error',e=>console.error('[UDP]',e.message));udp.bind(settings.udpPort,'0.0.0.0',()=>console.log(`UDP listening on 0.0.0.0:${settings.udpPort}`));}
 app.get('/api/info',async(_req,res)=>{const url=`http://${primaryIp()}:${process.env.PORT||3000}`;res.json({settings,ips:ips(),mobileUrl:url,qr:await QRCode.toDataURL(url,{margin:1,width:256,color:{dark:'#080a0b',light:'#ffffff'}})});});
+app.post('/api/radio-events',(req,res)=>{
+  const parsed=radioBatchSchema.safeParse(req.body);
+  if(!parsed.success)return res.status(400).json({error:'Invalid radio events'});
+  const accepted=store.saveRadioEvents(parsed.data.events);
+  return res.json({accepted,acknowledged:store.acknowledgedRadioEvents(parsed.data.events)});
+});
+app.get('/api/sessions/:id/radio',(req,res)=>{
+  const id=Number(req.params.id),parsed=radioQuerySchema.safeParse(req.query);
+  if(!Number.isSafeInteger(id)||id<1||!parsed.success)return res.status(400).json({error:'Invalid radio query'});
+  return res.json({...store.radioEvents(id,parsed.data),report:store.radioReport(id)});
+});
 app.get('/api/state',(_req,res)=>res.json(state));app.get('/api/sessions',(_req,res)=>res.json(store.list()));app.get('/api/sessions/:id/decisions',(req,res)=>{const id=Number(req.params.id);if(!Number.isInteger(id)||id<1)return res.status(400).json({error:'Invalid session id'});res.json(store.decisions(id));});
 app.get('/api/sessions/:id/replay',(req,res)=>{const id=Number(req.params.id),limit=Number(req.query.limit)||2500;if(!Number.isInteger(id)||id<1)return res.status(400).json({error:'Invalid session id'});res.json({report:store.report(id),frames:store.replay(id,limit)});});
 app.get('/api/sessions/:id/report',(req,res)=>{const id=Number(req.params.id);if(!Number.isInteger(id)||id<1)return res.status(400).json({error:'Invalid session id'});const report=store.report(id);return report?res.json(report):res.status(404).json({error:'Session not found'});});
 app.get('/api/quality',(_req,res)=>res.json(state.telemetry));
 app.get('/api/diagnostics',(_req,res)=>res.json({...diagnostics,currentState:state}));
 app.put('/api/settings',(req,res)=>{const parsed=z.object({udpPort:z.number().int().min(1024).max(65535),demoMode:z.boolean(),autoSave:z.boolean(),demoSession:z.enum(['RACE','PRACTICE','QUALIFYING'])}).safeParse(req.body);if(!parsed.success)return res.status(400).json({error:'Invalid settings'});settings=parsed.data;store.saveSettings(settings);startSource();res.json({settings});});
-io.on('connection',socket=>socket.emit('raceState',state));
+io.on('connection',socket=>{
+  socket.join('legacy-state');
+  socket.emit('raceState',state);
+  socket.on('raceStreamReady',()=>{
+    if(streams.has(socket.id))return;
+    socket.leave('legacy-state');
+    const stream=new LatestStateStream<RaceState>((snapshot,ack)=>socket.emit('raceState',snapshot,ack));
+    streams.set(socket.id,stream);stream.update(state);stream.flush(Date.now());
+  });
+  socket.on('disconnect',()=>{streams.get(socket.id)?.close();streams.delete(socket.id);});
+});
 const dist=path.resolve('dist');app.use(express.static(dist));app.use((req,res,next)=>{if(req.method==='GET'&&!req.path.startsWith('/api')&&!req.path.startsWith('/socket.io'))res.sendFile(path.join(dist,'index.html'));else next();});
 const port=Number(process.env.PORT)||3000;http.listen(port,'0.0.0.0',()=>{console.log(`F1 Race Monitor: http://localhost:${port} | LAN: http://${primaryIp()}:${port}`);startSource();});
-process.on('SIGINT',()=>{stopSources();process.exit(0)});
-process.on('SIGTERM',()=>{stopSources();process.exit(0)});
+process.on('SIGINT',()=>{clearInterval(streamTimer);stopSources();process.exit(0)});
+process.on('SIGTERM',()=>{clearInterval(streamTimer);stopSources();process.exit(0)});

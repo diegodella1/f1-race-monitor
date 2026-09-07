@@ -1,3 +1,5 @@
+import { messageIsCurrent } from './messagePolicy.js';
+import { radioText, radioEnglishText } from './radioCopy.js';
 import type { DecisionLogEntry, EngineerCondition, EngineerMessage, RaceMode, RaceState, RaceSummary, RivalTrend } from './types.js';
 import { messageFamily, scoreMessage } from './scoring.js';
 
@@ -11,12 +13,19 @@ type DamageMemory={value:number;band:number;status:EngineerCondition['status'];f
 const damageLabels:Record<DamageKey,string>={frontWing:'FRONT WING',rearWing:'REAR WING',floor:'FLOOR',diffuser:'DIFFUSER',sidepod:'SIDEPODS',gearbox:'GEARBOX',engine:'ENGINE',tyres:'TYRES',brakes:'BRAKES'};
 const damageKeys:DamageKey[]=['frontWing','rearWing','floor','diffuser','sidepod','gearbox','engine','brakes'];
 const damageBand=(value:number)=>value>=90?90:value>=60?60:value>=30?30:value>=10?10:0;
-const immediateMessage=(id:string)=>['red-flag','safety-car','final-lap','race-finished','race-retired'].includes(id)||id.startsWith('incident-')||id.startsWith('damage-')||id.startsWith('penalty-')||id.startsWith('weather-')||id.startsWith('strategy-pit-exit-')||id.startsWith('strategy-cycle-complete-');
+const immediateMessage=(id:string)=>['red-flag','safety-car','final-lap','race-finished','race-retired'].includes(id)||id.startsWith('incident-')||id.startsWith('damage-')||id.startsWith('penalty-')||id.startsWith('weather-')||id.startsWith('strategy-pit-exit-')||id.startsWith('strategy-cycle-complete-')||['strategy-box-mandatory','strategy-box-latest','strategy-box'].includes(id);
 
 export class RaceEngineer {
   private active:EngineerMessage|null=null;
   private sessionKey='';
   private lastLap=0;
+  private lastMessageAt=-Infinity;
+  private messageCount=0;
+  private countLap=-1;
+  private emittedEvents=new Set<string>();
+  private messageContexts=new Map<string,EngineerMessage>();
+  private phraseCounts=new Map<string,number>();
+  private lastOutlookLap=0;
   private lastPosition=0;
   private lastAheadId='';
   private lastBehindId='';
@@ -45,6 +54,7 @@ export class RaceEngineer {
   private summary:RaceSummary|null=null;
 
   reset(){
+    this.lastMessageAt=-Infinity;this.messageCount=0;this.countLap=-1;this.emittedEvents.clear();this.messageContexts.clear();this.phraseCounts.clear();this.lastOutlookLap=0;
     this.active=null;this.sessionKey='';this.lastLap=0;this.lastPosition=0;
     this.lastAheadId='';this.lastBehindId='';this.lastAheadGap=null;this.lastBehindGap=null;this.lastPassAt=-Infinity;
     this.lastWeather='';this.lastPenalties=0;this.seen.clear();this.events.clear();
@@ -58,6 +68,7 @@ export class RaceEngineer {
     const sessionKey=state.sessionUid+':'+state.sessionLinkId+':'+state.sessionType;
     if(this.sessionKey&&(sessionKey!==this.sessionKey||(this.lastLap&&state.lap<this.lastLap)))this.reset();
     this.sessionKey=sessionKey;this.lastLap=state.lap;
+    if(this.countLap!==state.lap){this.countLap=state.lap;this.messageCount=0;}
     const terminal=['FINISHED','RETIRED'].includes(state.context.lifecycle);
     if((!['CONNECTED','DEMO'].includes(state.status)&&!terminal)||state.context.category==='UNKNOWN')return {...state,sessionSummary:this.summary??state.sessionSummary,engineer:{primary:null,next:null,secondary:[],conditions:this.conditions(),log:[...this.log],metrics:{candidates:0,eligible:0,suppressed:0,lastMessageLap:this.lastMessageLap,silenceReason:state.status==='PAUSED'?'Game paused · last reliable state retained':'Waiting for identified telemetry'}}};
 
@@ -89,7 +100,7 @@ export class RaceEngineer {
     if(raceSession&&!terminal){
       this.predict('ahead',state.strategy.ahead,state,now);
       this.predict('behind',state.strategy.behind,state,now);
-      if(state.strategy.raceMode!==this.lastMode&&state.lap>=2)this.modeEvent(state,now);
+      if(state.strategy.raceMode!==this.lastMode&&state.lap>=2&&!(state.strategy.recommendation?.id.startsWith('strategy-pit-exit-')&&['BOX','LEARNING'].includes(this.lastMode)))this.modeEvent(state,now);
     }
     this.lastMode=state.strategy.raceMode;
 
@@ -109,24 +120,40 @@ export class RaceEngineer {
     else if(!terminal&&raceSession&&state.player.fuel>0&&fuelLaps>=0&&fuelLaps<.35)add('fuel-margin','action','FUEL MARGIN LOW','Fuel projection is only +'+fuelLaps.toFixed(2)+' laps.','Use light lift and coast until the margin stabilises.',91);
     if(!terminal&&state.player.ers<15)add('low-ers','action','ERS RESERVE LOW','Battery is at '+state.player.ers+'%.','Harvest before the next attack or defence window.',88);
 
-    if(!terminal&&!raw.some(message=>message.priority!=='info')){
+    if(!terminal&&!raw.some(message=>message.priority!=='info'||message.id.startsWith('pace-outlook-'))){
       const outlook=this.paceOutlook(state,now);
-      if(outlook)raw.push(outlook);
+      if(outlook){this.addEvent(outlook);raw.push(outlook);}
     }
-    const confirmed=this.confirm(raw,now);
-    for(const candidate of raw)if(!confirmed.some(x=>x.id===candidate.id))this.record(candidate,state.lap,now,'SUPPRESSED','Waiting for a stable signal');
+    for(const key of this.messageContexts.keys())if(!raw.some(message=>message.id===key))this.messageContexts.delete(key);
+    for(const message of raw){
+      const cached=this.messageContexts.get(message.id);
+      if(cached){message.phraseVariant=cached.phraseVariant;message.eventId=cached.eventId;message.sessionKey=cached.sessionKey;message.phase=cached.phase;message.context=cached.context;message.radio=cached.radio;message.createdAt=cached.createdAt;}
+
+      message.eventId??=sessionKey+':'+message.id+':'+message.createdAt;
+      message.sessionKey??=sessionKey;
+      message.phase??=state.strategy.pushPhase?.id??state.strategy.raceMode;
+      message.context??={aheadId,behindId,mode:state.strategy.raceMode};
+      message.radio??={es:radioText(message,state),en:radioEnglishText(message,state)};
+      this.messageContexts.set(message.id,{...message});
+    }
+    const current=raw.filter(message=>messageIsCurrent(message,state,now));
+    for(const message of raw)if(!current.includes(message))this.record(message,state.lap,now,'SUPPRESSED','Context changed or event expired');
+    const confirmed=this.confirm(current,now);
+    for(const candidate of current)if(!confirmed.some(x=>x.id===candidate.id))this.record(candidate,state.lap,now,'SUPPRESSED','Waiting for a stable signal');
     const candidates:EngineerMessage[]=[];
     for(const candidate of confirmed){
+      if(this.emittedEvents.has(candidate.eventId!)&&candidate.id!==this.active?.id){this.record(candidate,state.lap,now,'SUPPRESSED','Event already selected');continue;}
       const family=messageFamily(candidate.id),lastFamily=this.lastFamilyLap.get(family)??-99,cooldown=candidate.priority==='critical'?0:candidate.priority==='action'?1:candidate.priority==='opportunity'?2:3,novel=state.lap-lastFamily>=cooldown;
-      const evaluation=scoreMessage(candidate,state,novel,now);
-      if(!novel&&candidate.id!==this.active?.id){this.record(evaluation.message,state.lap,now,'SUPPRESSED',`Similar ${family} message emitted ${state.lap-lastFamily} lap(s) ago`);continue;}
-      if(!evaluation.eligible){this.record(evaluation.message,state.lap,now,'SUPPRESSED',evaluation.reason);continue;}
+      const bypass=immediateMessage(candidate.id);
+      const evaluation=scoreMessage(candidate,state,novel||bypass||candidate.id.startsWith('pace-outlook-'),now);
+      if(!novel&&!bypass&&candidate.id!==this.active?.id&&!candidate.id.startsWith('pace-outlook-')){this.record(evaluation.message,state.lap,now,'SUPPRESSED',`Similar ${family} message emitted ${state.lap-lastFamily} lap(s) ago`);continue;}
+      if(!evaluation.eligible&&!bypass){this.record(evaluation.message,state.lap,now,'SUPPRESSED',evaluation.reason);continue;}
       candidates.push(evaluation.message);
     }
     candidates.sort((a,b)=>(b.score??weight[b.priority]+b.confidence)-(a.score??weight[a.priority]+a.confidence));
     let best:EngineerMessage|null=candidates[0]||null;
-    if(best&&best.priority!=='critical'&&!immediateMessage(best.id)&&best.id!==this.active?.id&&this.lastMessageLap===state.lap){
-      this.record(best,state.lap,now,'SUPPRESSED','One non-critical message per lap limit');
+    if(best&&best.priority!=='critical'&&!immediateMessage(best.id)&&best.id!==this.active?.id&&(this.messageCount>=3||now-this.lastMessageAt<15000)){
+      this.record(best,state.lap,now,'SUPPRESSED',this.messageCount>=3?'Three ordinary messages per lap limit':'Waiting for 15-second radio spacing');
       best=candidates.find(x=>x.id===this.active?.id)||null;
     }
     const currentCandidate=candidates.find(x=>x.id===this.active?.id);
@@ -135,7 +162,14 @@ export class RaceEngineer {
     if(!best)this.active=null;
     else if(!this.active||!candidates.some(x=>x.id===this.active?.id)||weight[best.priority]>weight[this.active.priority]||immediateMessage(best.id)||(best.score??0)-(this.active.score??0)>=10||best.id===this.active.id)this.active=best.id===this.active?.id?{...best,createdAt:this.active.createdAt}:best;
     if(previous&&!this.active)this.record(previous,state.lap,now,'RESOLVED','Message condition cleared');
-    if(this.active&&this.active.id!==previous?.id){this.lastMessageLap=state.lap;this.lastFamilyLap.set(messageFamily(this.active.id),state.lap);this.record(this.active,state.lap,now,'EMITTED',`Selected as highest-value ${this.active.category?.toLowerCase()??'engineer'} message · score ${this.active.score??0}`);}
+    if(this.active&&this.active.id!==previous?.id){
+      const family=this.active.id.startsWith('incident-collision-')?'contact':messageFamily(this.active.id),variant=this.phraseCounts.get(family)??0;
+      this.phraseCounts.set(family,variant+1);
+      this.active={...this.active,phraseVariant:variant,radio:undefined};
+      const prefix=this.active.title.startsWith('PUSH PHASE ENDED')?'Push phase complete. ':'';
+      this.active.radio={es:radioText(this.active,state),en:prefix+radioEnglishText(this.active,state)};
+      this.messageContexts.set(this.active.id,{...this.active});
+      this.lastMessageLap=state.lap;this.lastMessageAt=now;if(!immediateMessage(this.active.id)&&this.active.priority!=='critical')this.messageCount++;this.emittedEvents.add(this.active.eventId!);if(this.active.id.startsWith('pace-outlook-'))this.lastOutlookLap=state.lap;this.lastFamilyLap.set(messageFamily(this.active.id),state.lap);this.record(this.active,state.lap,now,'EMITTED',`Selected as highest-value ${this.active.category?.toLowerCase()??'engineer'} message · score ${this.active.score??0}`);}
     const secondary=candidates.filter(x=>x.id!==this.active?.id).slice(0,2),next=secondary[0]??null,suppressed=Math.max(0,raw.length-candidates.length);
     const silenceReason=this.active?'Active decision remains valid':state.telemetry.score<60?'Telemetry confidence is too low for a tactical call':state.strategy.status==='LEARNING'?'Learning pace and rival trends':'No high-value change · continue current plan';
     return {...state,sessionSummary:this.summary??state.sessionSummary,engineer:{primary:this.active,next,secondary,conditions:this.conditions(),log:[...this.log],metrics:{candidates:raw.length,eligible:candidates.length,suppressed,lastMessageLap:this.lastMessageLap,silenceReason}}};
@@ -170,15 +204,15 @@ export class RaceEngineer {
   }
 
   private observeDamage(state:RaceState,now:number){
-    const pitting=state.player.pit||state.player.driverStatus===2||state.player.driverStatus===3,justExited=this.wasPitting&&!pitting;
+    const pitting=state.player.pit,justExited=this.wasPitting&&!pitting;
     for(const key of damageKeys){
       const value=Math.round(state.context.damage[key]),band=damageBand(value),old=this.damageMemory.get(key);
-      if(!band){if(old)this.record('damage-'+key,state.lap,now,'RESOLVED','Damage repaired or no longer reported');this.damageMemory.delete(key);continue;}
+      if(!band){if(old){this.record('damage-'+key,state.lap,now,'RESOLVED','Damage repaired or no longer reported');this.addEvent({id:'repair-'+key+'-'+state.lap,priority:'info',title:'DAMAGE CLEARED',evidence:damageLabels[key]+' damage cleared.',action:'Reassess the handling.',confidence:92,createdAt:now,expiresAt:now+30000,radio:{es:'Daño reparado. Volvé a evaluar el comportamiento.',en:'Damage repaired. Reassess the handling.'}});}this.damageMemory.delete(key);continue;}
       if(!old){
         const memory:DamageMemory={value,band,status:'NEW',firstSeenLap:state.lap,firstSeenAt:now,lastChangedLap:state.lap};this.damageMemory.set(key,memory);this.addDamageEvent(key,memory,state,now);continue;
       }
       if(band>old.band||value>=old.value+10){
-        const memory:DamageMemory={...old,value,band,status:'ESCALATED',lastChangedLap:state.lap};this.damageMemory.set(key,memory);this.addDamageEvent(key,memory,state,now);continue;
+        const memory:DamageMemory={...old,value,band,status:'ESCALATED',lastChangedLap:state.lap};this.damageMemory.set(key,memory);this.addDamageEvent(key,memory,state,now,old.value);continue;
       }
       let status=old.status;
       if(justExited&&value>=old.value-2)status='ACCEPTED';
@@ -189,9 +223,9 @@ export class RaceEngineer {
     this.wasPitting=pitting;
   }
 
-  private addDamageEvent(key:DamageKey,memory:DamageMemory,state:RaceState,now:number){
+  private addDamageEvent(key:DamageKey,memory:DamageMemory,state:RaceState,now:number,before?:number){
     const severe=memory.band>=60,title=memory.status==='ESCALATED'?'DAMAGE INCREASED':severe?'SEVERE CAR DAMAGE':'DAMAGE DETECTED';
-    this.addEvent({id:`damage-${key}-${memory.band}-${state.lap}`,priority:severe?'critical':'action',title:`${title} · ${damageLabels[key]}`,evidence:`${damageLabels[key]} is at ${memory.value}%.`,action:severe?'Box if the car is unsafe or the pace loss is unacceptable.':'Assess the handling this lap; continuing will be treated as your decision.',confidence:severe?98:92,createdAt:now,expiresAt:now+10000,category:'CAR'});
+    this.addEvent({id:`damage-${key}-${memory.band}-${state.lap}-${memory.value}`,priority:severe?'critical':'action',title:`${title} · ${damageLabels[key]}`,evidence:`${damageLabels[key]} is at ${memory.value}%.`,action:severe?'Box if the car is unsafe or the pace loss is unacceptable.':'Assess the handling this lap; continuing will be treated as your decision.',confidence:severe?98:92,createdAt:now,expiresAt:now+10000,category:'CAR',context:{damageBefore:before,damageAfter:memory.value}});
   }
 
   private conditions():EngineerCondition[]{
@@ -199,23 +233,23 @@ export class RaceEngineer {
   }
 
   private paceOutlook(state:RaceState,now:number):EngineerMessage|null {
-    if(state.strategy.status!=='READY'||state.telemetry.score<60||state.lap<3||state.lap-this.lastMessageLap<3)return null;
+    if(!['RACE','SPRINT'].includes(state.context.category)||state.player.pit||state.context.lapInvalid||state.telemetry.score<60||state.lap<2||state.lap<=this.lastOutlookLap||now-this.lastMessageAt<45000||state.player.lastLap==='—')return null;
     const ahead=state.strategy.ahead,behind=state.strategy.behind,target=state.strategy.targetLapTime;
-    if(behind&&behind.rate!==null&&behind.rate<-.12&&behind.catchLaps!==null&&behind.catchLaps<=6){
+    if(behind&&behind.gap!==null&&behind.gap>1.2&&behind.rate!==null&&behind.rate<-.12&&behind.catchLaps!==null&&behind.catchLaps<=6){
       const eta=Math.max(1,Math.ceil(behind.catchLaps));
       return {id:'pace-outlook-behind-'+state.lap,priority:eta<=9?'action':'info',title:'REAR THREAT BUILDING',evidence:behind.name+' is gaining '+Math.abs(behind.rate).toFixed(2)+'s/lap · projected threat in '+eta+' laps.',action:'Protect exits and keep enough ERS for the expected defence.',confidence:Math.min(94,72+behind.laps*4),createdAt:now,expiresAt:now+14000,category:'BATTLE',validUntilLap:state.lap+2};
     }
-    if(ahead&&ahead.rate!==null&&ahead.rate<-.12&&ahead.catchLaps!==null&&ahead.catchLaps<=6){
+    if(ahead&&ahead.gap!==null&&ahead.gap>1.2&&ahead.rate!==null&&ahead.rate<-.12&&ahead.catchLaps!==null&&ahead.catchLaps<=6){
       const eta=Math.max(1,Math.ceil(ahead.catchLaps));
       return {id:'pace-outlook-ahead-'+state.lap,priority:eta<=10?'opportunity':'info',title:'PACE ADVANTAGE BUILDING',evidence:'Gaining '+Math.abs(ahead.rate).toFixed(2)+'s/lap on '+ahead.name+' · projected catch in '+eta+' laps.',action:'Maintain this pace and preserve ERS for the catch.',confidence:Math.min(94,72+ahead.laps*4),createdAt:now,expiresAt:now+14000,category:'BATTLE',validUntilLap:state.lap+2};
     }
     const aheadText=ahead?.gap!==null&&ahead?ahead.name+' '+ahead.gap.toFixed(1)+'s ahead':'clear ahead',behindText=behind?.gap!==null&&behind?behind.name+' '+behind.gap.toFixed(1)+'s behind':'clear behind';
-    return {id:'pace-outlook-status-'+state.lap,priority:'info',title:'RACE STATUS',evidence:aheadText+' · '+behindText+'.',action:target==='—'?'Continue the current plan for three laps.':'Hold target '+target+' and reassess in three laps.',confidence:86,createdAt:now,expiresAt:now+12000,category:'PACE',validUntilLap:state.lap+2};
+    return {id:'pace-outlook-status-'+state.lap,priority:'info',title:'RACE STATUS',evidence:aheadText+' · '+behindText+'.',action:state.strategy.raceMode==='PUSH'?'Continue the push phase; reassess after this lap.':target==='—'?'Continue the current plan.':'Hold target '+target+' and reassess next lap.',confidence:86,createdAt:now,expiresAt:now+12000,category:'PACE',validUntilLap:state.lap+2};
   }
 
   private modeEvent(state:RaceState,now:number){
     const mode=state.strategy.raceMode,target=state.strategy.targetLapTime;
-    if((this.lastModeMessageLap.get(mode)??-99)>=state.lap-3)return;
+    if((this.lastModeMessageLap.get(mode)??-99)>=state.lap-1)return;
     const data:Partial<Record<RaceMode,{priority:EngineerMessage['priority'];title:string;action:string}>>={
       MANAGE:{priority:'info',title:'RACE UNDER CONTROL',action:target==='—'?'Protect tyres and maintain the gap.':'Target '+target+' and protect the tyres.'},
       PUSH:{priority:'opportunity',title:'PUSH PHASE',action:target==='—'?'Push for two laps.':'Target '+target+' for two laps.'},
@@ -223,12 +257,15 @@ export class RaceEngineer {
       DEFEND:{priority:'action',title:'DEFEND MODE',action:'Prioritise exits and preserve ERS for defence.'}
     };
     const message=data[mode];if(!message)return;this.lastModeMessageLap.set(mode,state.lap);
-    this.addEvent({id:'mode-'+mode.toLowerCase()+'-'+state.lap,priority:message.priority,title:message.title,evidence:state.strategy.modeReason,action:message.action,confidence:88,createdAt:now,expiresAt:now+10000});
+    const closed=this.lastMode==='PUSH';
+    const event:EngineerMessage={id:'mode-'+mode.toLowerCase()+'-'+state.lap,priority:message.priority,title:closed?'PUSH PHASE ENDED · '+message.title:message.title,evidence:state.strategy.modeReason,action:message.action,confidence:88,createdAt:now,expiresAt:now+30000};
+    if(closed)event.radio={es:'Terminamos la fase de push. '+radioText(event,state),en:'Push phase complete. '+radioEnglishText(event,state)};
+    this.addEvent(event);
   }
 
   private predict(role:'ahead'|'behind',rival:RivalTrend|null,state:RaceState,now:number){
     const id=rivalId(rival||undefined),key=role+':'+id,lapsLeft=state.totalLaps?state.totalLaps-state.lap:99;
-    if(!rival||!id||rival.laps<3||rival.gap===null||rival.gap>5||rival.catchLaps===null||rival.rate===null||rival.rate>-.12||rival.catchLaps>6||rival.catchLaps>lapsLeft){this.predictionBands.delete(key);return;}
+    if(!rival||!id||rival.laps<3||rival.gap===null||rival.gap<=1.2||rival.gap>5||rival.pit||rival.catchLaps===null||rival.rate===null||rival.rate>-.12||rival.catchLaps>6||rival.catchLaps>lapsLeft){this.predictionBands.delete(key);return;}
     const eta=Math.max(1,Math.ceil(rival.catchLaps)),band=eta<=2?2:eta<=4?4:6,previous=this.predictionBands.get(key);
     if(previous!==undefined&&previous<=band)return;
     this.predictionBands.set(key,band);
@@ -236,7 +273,7 @@ export class RaceEngineer {
     this.addEvent({id:'prediction-'+role+'-'+id+'-'+band,priority:attacking?'opportunity':'action',title:(attacking?'CATCH IN ':'THREAT IN ')+eta+' '+(eta===1?'LAP':'LAPS'),evidence:rival.name+' · gap '+(rival.gap??0).toFixed(1)+'s · trend '+Math.abs(rival.rate).toFixed(2)+'s/lap.',action:attacking?'Keep this pace and prepare ERS for the catch.':'The car behind is closing; protect exits and prepare the defence.',confidence:Math.min(96,76+rival.laps*4),createdAt:now,expiresAt:now+12000});
   }
 
-  private addEvent(message:EngineerMessage){this.events.set(message.id,message);}
+  private addEvent(message:EngineerMessage){message.expiresAt=Math.max(message.expiresAt,message.createdAt+30000);this.events.set(message.id,message);}
 
   private record(message:EngineerMessage|string,lap:number,at:number,status:DecisionLogEntry['status'],reason:string){
     const id=typeof message==='string'?message:message.id,key=id+':'+lap+':'+status;if(this.logged.has(key))return;this.logged.add(key);

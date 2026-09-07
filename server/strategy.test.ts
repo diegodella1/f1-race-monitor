@@ -7,7 +7,7 @@ import type { RaceState } from './types.js';
 function race(lap:number,aheadGap:number,behindGap:number,lastLap='—',wear=30):RaceState {
   const s=initialState();
   s.status='CONNECTED';s.sessionUid='strategy-test';s.sessionLinkId=7;s.sessionType='Race';s.context.category='RACE';s.lap=lap;s.totalLaps=30;s.sessionTime=lap*90;s.context.pitWindowIdeal=8;s.context.pitWindowLatest=12;s.context.pitRejoinPosition=6;s.context.tyreWear=[wear,wear-1,wear-3,wear-3];
-  s.player.position=2;s.player.driver='PLAYER';s.player.tyre='MEDIUM';s.player.tyreAge=lap+3;s.player.lastLap=lastLap;s.player.driverStatus=4;
+  s.player.fuel=30;s.player.fuelRemainingLaps=1;s.player.ers=60;s.player.position=2;s.player.driver='PLAYER';s.player.tyre='MEDIUM';s.player.tyreAge=lap+3;s.player.lastLap=lastLap;s.player.driverStatus=4;
   s.drivers=[
     {vehicleIndex:0,position:1,name:'AHEAD',team:'Ferrari',lap,sector:1,gap:'LEADER',interval:'—',tyre:'MEDIUM',tyreAge:lap+6,pit:false},
     {vehicleIndex:1,position:2,name:'PLAYER',team:'McLaren',lap,sector:1,gap:`+${aheadGap.toFixed(3)}`,interval:`+${aheadGap.toFixed(3)}`,tyre:'MEDIUM',tyreAge:lap+3,pit:false},
@@ -71,9 +71,9 @@ test('does not call a stop from noisy degradation with low tyre wear',()=>{
 test('learns observed pit loss from the change in gap to the leader',()=>{
   const model=new PitwallStrategy();
   model.analyze(race(1,10,3));
-  const entry=race(1,10,3);entry.player.pit=true;entry.sessionTime=100;model.analyze(entry);
+  const entry=race(1,10,3);entry.player.pit=true;entry.sessionTime=100;model.analyze(entry,1000);model.analyze(entry,2000);
   const exit=race(1,32,3);exit.player.pit=false;exit.sessionTime=122;
-  const result=model.analyze(exit);
+  model.analyze(exit,3000);const result=model.analyze(exit,4000);
   assert.equal(result.strategy.pitLossSeconds,22);
   assert.equal(result.strategy.plan.pitLossSource,'OBSERVED');
   assert.equal(result.strategy.plan.pitLossSeconds,22);
@@ -117,9 +117,9 @@ test('plans and calls the mandatory dry-compound stop in a short race',()=>{
 
 test('marks the mandatory strategy complete and reports the pit exit',()=>{
   const model=new PitwallStrategy(),start=race(1,4,5);start.totalLaps=13;model.analyze(start);
-  const entry=race(7,4,5);entry.totalLaps=13;entry.player.pit=true;entry.sessionTime=600;model.analyze(entry);
+  const entry=race(7,4,5);entry.totalLaps=13;entry.player.pit=true;entry.sessionTime=600;model.analyze(entry,1000);model.analyze(entry,2000);
   const exit=race(8,28,5);exit.totalLaps=13;exit.player.tyre='SOFT';exit.player.tyreAge=1;exit.sessionTime=625;
-  const result=model.analyze(exit);
+  model.analyze(exit,3000);const result=model.analyze(exit,4000);
   assert.equal(result.strategy.rules.mandatoryStopComplete,true);
   assert.deepEqual(result.strategy.rules.compoundsUsed,['MEDIUM','SOFT']);
   assert.match(result.strategy.recommendation?.id??'',/^strategy-pit-exit-/);
@@ -145,16 +145,54 @@ test('sets a useful race mode and lap-time target while leading',()=>{
   assert.equal(result.strategy.targetLapTime,'1:26.600');
 });
 
-test('holds tactical modes for two laps and never returns to learning mid-race',()=>{
+test('reacts immediately to a close threat and never returns to learning mid-race',()=>{
   const model=new PitwallStrategy();
   model.analyze(race(1,3,3));
   model.analyze(race(2,3,3,'1:30.000'));
   const attack=model.analyze(race(3,1.1,3,'1:30.100'));
   assert.equal(attack.strategy.raceMode,'ATTACK');
   const threat=race(4,3,.8,'1:30.200');
-  assert.equal(model.analyze(threat).strategy.raceMode,'ATTACK');
+  assert.equal(model.analyze(threat).strategy.raceMode,'DEFEND');
   const defend=race(5,3,.8,'1:30.300');
   assert.equal(model.analyze(defend).strategy.raceMode,'DEFEND');
   const newStint=race(7,5,5,'—');newStint.player.tyre='SOFT';newStint.player.tyreAge=0;
   assert.notEqual(model.analyze(newStint).strategy.raceMode,'LEARNING');
+});
+
+test('forgets rival trends after a tyre change and gaps in clean laps',()=>{
+  const model=new PitwallStrategy();
+  for(let lap=1;lap<=4;lap++)model.analyze(race(lap,4-lap*.2,4,'1:30.000'));
+  const change=race(4,3.2,4,'1:30.000');change.drivers[0].tyre='SOFT';change.drivers[0].tyreAge=0;
+  assert.equal(model.analyze(change).strategy.ahead?.rate,null);
+  const later=race(6,2,4,'1:30.000');later.drivers[0].tyre='SOFT';later.drivers[0].tyreAge=2;
+  assert.equal(model.analyze(later).strategy.ahead?.rate,null);
+});
+
+test('out lap is not time in the pit lane and close threat overrides fresh tyres',()=>{
+  const model=new PitwallStrategy();model.analyze(race(1,4,5),0);
+  const entry=race(5,4,5);entry.player.pit=true;entry.sessionTime=400;
+  model.analyze(entry,1000);model.analyze(entry,2000);
+  const exit=race(6,25,.6);exit.sessionTime=423;exit.player.driverStatus=3;exit.player.tyre='SOFT';exit.player.tyreAge=0;
+  model.analyze(exit,3000);const result=model.analyze(exit,4000);
+  assert.equal(result.strategy.lastStop?.exitLap,6);
+  assert.equal(result.strategy.lastStop?.pitLaneSeconds,23);
+  assert.equal(result.strategy.raceMode,'DEFEND');
+  assert.match(result.strategy.recommendation?.action??'',/Defend/);
+  assert.equal(result.strategy.lastStop?.cycleComplete,false);
+});
+
+test('does not substitute pit lane duration for net loss after a reference change',()=>{
+  const model=new PitwallStrategy();model.analyze(race(1,4,5),0);
+  const entry=race(5,4,5);entry.player.pit=true;entry.sessionTime=400;
+  model.analyze(entry,1000);model.analyze(entry,2000);
+  const exit=race(6,25,5);exit.sessionTime=423;exit.drivers[0].vehicleIndex=9;
+  model.analyze(exit,3000);const result=model.analyze(exit,4000);
+  assert.equal(result.strategy.lastStop?.actualLossSeconds,null);
+  assert.equal(result.strategy.lastStop?.pitLaneSeconds,23);
+});
+
+test('incomplete field reports an uncertain projection rather than a game hint',()=>{
+  const state=race(5,4,5);state.drivers[2].gap='—';state.context.pitRejoinPosition=20;
+  const plan=new PitwallStrategy().analyze(state).strategy.plan;
+  assert.equal(plan.rejoinPosition,0);assert.equal(plan.confidence,0);
 });

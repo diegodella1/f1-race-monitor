@@ -7,19 +7,19 @@ function race(){const s=initialState();s.status='CONNECTED';s.sessionUid='test';
 
 test('does not announce an obvious DRS gap when monitoring starts',()=>{const engineer=new RaceEngineer(),state=race();assert.equal(engineer.analyze(state,1000).engineer.primary,null);assert.equal(engineer.analyze(state,5000).engineer.primary,null)});
 test('announces DRS only when the same rival crosses into range',()=>{const engineer=new RaceEngineer(),state=race();state.drivers[1].interval='+1.400';engineer.analyze(state,1000);state.drivers[1].interval='+0.900';const result=engineer.analyze(state,2000);assert.match(result.engineer.primary?.id??'',/^drs-attack-/);assert.equal(result.engineer.primary?.priority,'opportunity')});
-test('does not repeat the same DRS call after its cooldown starts',()=>{const engineer=new RaceEngineer(),state=race();state.drivers[1].interval='+1.400';engineer.analyze(state,1000);state.drivers[1].interval='+0.900';engineer.analyze(state,2000);engineer.analyze(state,12000);state.drivers[1].interval='+1.400';engineer.analyze(state,13000);state.drivers[1].interval='+0.900';assert.equal(engineer.analyze(state,14000).engineer.primary,null)});
+test('does not repeat the same DRS call after its cooldown starts',()=>{const engineer=new RaceEngineer(),state=race();state.drivers[1].interval='+1.400';engineer.analyze(state,1000);state.drivers[1].interval='+0.900';engineer.analyze(state,2000);engineer.analyze(state,32000);state.drivers[1].interval='+1.400';engineer.analyze(state,33000);state.drivers[1].interval='+0.900';assert.equal(engineer.analyze(state,34000).engineer.primary,null)});
 test('predicts a multi-lap catch from the strategy trend',()=>{const state=race();state.totalLaps=20;state.lap=5;state.strategy.ahead={name:'AHEAD',position:1,gap:2,rate:-.5,direction:'GAINING',laps:4,catchLaps:4,tyre:'MEDIUM',tyreAge:8,pit:false};const result=new RaceEngineer().analyze(state,1000);assert.match(result.engineer.primary?.id??'',/^prediction-ahead-/);assert.match(result.engineer.primary?.title??'',/4 LAPS/)});
 test('tyre wear alone is not reported as structural car damage',()=>{const state=race();state.context.damage.tyres=45;assert.equal(new RaceEngineer().analyze(state,1000).engineer.primary,null)});
 test('critical damage overrides an attack opportunity',()=>{const state=race();state.context.damage.frontWing=72;const result=new RaceEngineer().analyze(state);assert.match(result.engineer.primary?.id??'',/^damage-frontWing-60-/);assert.equal(result.engineer.primary?.priority,'critical')});
 test('safety messages override a strategy call',()=>{const state=race(),now=1000;state.flag='RED';state.strategy.recommendation={id:'strategy-undercut',priority:'opportunity',title:'UNDERCUT AVAILABLE',evidence:'Three clean laps support the call.',action:'Box before the car ahead.',confidence:94,createdAt:now,expiresAt:now+12000};const result=new RaceEngineer().analyze(state,now);assert.equal(result.engineer.primary?.id,'red-flag');assert.equal(result.engineer.primary?.priority,'critical')});
 
 test('a quiet 15-lap race produces useful pulses without becoming repetitive',()=>{
-  const engineer=new RaceEngineer(),state=race(),emitted:string[]=[];state.totalLaps=20;state.packetCount=500;state.telemetry.score=100;state.telemetry.confidence='HIGH';state.strategy.status='READY';state.strategy.raceMode='MANAGE';state.strategy.targetLapTime='1:35.500';
+  const engineer=new RaceEngineer(),state=race(),emitted:string[]=[];state.totalLaps=20;state.packetCount=500;state.telemetry.score=100;state.telemetry.confidence='HIGH';state.strategy.status='READY';state.strategy.raceMode='MANAGE';state.strategy.targetLapTime='1:35.500';state.player.lastLap='1:35.700';
   state.strategy.ahead={name:'AHEAD',position:1,gap:4.2,rate:0,direction:'STABLE',laps:5,catchLaps:null,tyre:'MEDIUM',tyreAge:8,pit:false};
   state.strategy.behind={name:'BEHIND',position:3,gap:5.1,rate:0,direction:'STABLE',laps:5,catchLaps:null,tyre:'HARD',tyreAge:10,pit:false};
   let previous='';
-  for(let lap=1;lap<=15;lap++){state.lap=lap;const now=lap*10000;engineer.analyze(state,now);const result=engineer.analyze(state,now+2000),id=result.engineer.primary?.id??'';if(id&&id!==previous)emitted.push(id);previous=id;}
-  assert.ok(emitted.length>=4);assert.ok(emitted.length<=6);assert.ok(emitted.every(id=>id.startsWith('pace-outlook-')||id.startsWith('mode-')));assert.equal(new Set(emitted).size,emitted.length);
+  for(let lap=1;lap<=15;lap++){state.lap=lap;const now=lap*90000;engineer.analyze(state,now);const result=engineer.analyze(state,now+2000),id=result.engineer.primary?.id??'';if(id&&id!==previous)emitted.push(id);previous=id;}
+  assert.ok(emitted.length>=10);assert.ok(emitted.length<=15);assert.ok(emitted.every(id=>id.startsWith('pace-outlook-')||id.startsWith('mode-')));assert.equal(new Set(emitted).size,emitted.length);
 });
 
 test('the engineer exposes score, next action and suppression metrics',()=>{
@@ -33,7 +33,7 @@ test('persistent damage becomes context, accepts a no-repair stop and only re-al
   let result=engineer.analyze(state,1000);
   assert.match(result.engineer.primary?.id??'',/^damage-frontWing-30-/);
   assert.equal(result.engineer.conditions[0]?.status,'NEW');
-  state.lap=5;result=engineer.analyze(state,12000);
+  state.lap=5;result=engineer.analyze(state,32000);
   assert.equal(result.engineer.conditions[0]?.status,'KNOWN');
   assert.ok(!result.engineer.primary?.id.startsWith('damage-frontWing'));
   state.player.pit=true;engineer.analyze(state,13000);

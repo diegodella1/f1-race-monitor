@@ -1,7 +1,7 @@
 {
   "name": "f1-race-monitor",
   "private": true,
-  "version": "2.6.0",
+  "version": "2.8.0",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k -n API,WEB -c yellow,cyan \"npm:dev:server\" \"npm:dev:web\"",
@@ -9,9 +9,9 @@
     "dev:web": "vite --host 0.0.0.0",
     "build": "tsc -p server/tsconfig.json && vite build",
     "start": "node dist-server/index.js",
-    "check": "tsc --noEmit && tsc -p server/tsconfig.json --noEmit"
-    ,"test": "tsx --test server/*.test.ts src/*.test.ts"
-    ,"replay": "tsx server/replay.ts"
+    "check": "tsc --noEmit && tsc -p server/tsconfig.json --noEmit",
+    "test": "tsx --test server/*.test.ts src/*.test.ts",
+    "replay": "tsx server/replay.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",

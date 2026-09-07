@@ -34,3 +34,28 @@
 .timing-tower{max-height:calc(100vh - 205px);overflow:auto}
 @media(max-width:900px){.timing-tower{overflow-x:hidden}.timing-columns,.timing-row{min-width:0;grid-template-columns:45px minmax(140px,1.5fr) 80px 90px 90px 100px}.timing-columns span:nth-child(n+7),.timing-row>span:nth-child(n+7){display:none}}
 @media(max-width:650px){.timing-columns,.timing-row{grid-template-columns:36px minmax(88px,1fr) 58px 68px 76px;column-gap:5px}.timing-columns span:nth-child(4),.timing-row>:nth-child(4){display:none}.timing-driver small{display:none}.timing-row em,.timing-row strong,.timing-row>span{font-size:8px}}
+
+.radio-history{margin-top:24px;padding:24px;min-width:0}
+.radio-history h2{font-size:20px;margin:0 0 12px}
+.radio-history p{line-height:1.5;color:var(--muted,#aeb6ba)}
+.radio-history-filters{display:flex;flex-wrap:wrap;gap:12px;margin:20px 0}
+.radio-history-filters label{display:grid;gap:8px;font-size:12px;min-width:110px}
+.radio-history select,.radio-history input,.radio-history button{background:#161d21;color:#f1f5f6;border:1px solid #445057;border-radius:6px;padding:10px;max-width:100%}
+.radio-history input{width:100px}.radio-history button:disabled{opacity:.45}
+.radio-history-table{overflow:auto}.radio-history table{width:100%;border-collapse:collapse;font-size:13px}
+.radio-history th,.radio-history td{padding:12px;text-align:left;border-bottom:1px solid #30393e;min-width:70px}
+.radio-history-pagination{display:flex;align-items:center;gap:12px;margin:16px 0}
+.radio-history details{padding:12px 0;border-top:1px solid #30393e}.radio-history summary{cursor:pointer}
+
+.radio-history h2{color:#eef4f6}.radio-history p{color:#aeb6ba}
+@media(max-width:640px){
+  .radio-history{padding:16px}
+  .radio-history-table{overflow:visible}
+  .radio-history table,.radio-history tbody{display:block}
+  .radio-history thead{display:none}
+  .radio-history tr{display:grid;grid-template-columns:40px 85px 1fr;border-bottom:1px solid #30393e;padding:12px 0}
+  .radio-history td{padding:4px;min-width:0;border:0;overflow-wrap:anywhere}
+  .radio-history td:nth-child(n+4){grid-column:1/-1}
+  .radio-history td:nth-child(4){font-size:14px;color:#eef4f6;padding-top:10px}
+  .radio-history td:nth-child(5){color:#aeb6ba}
+}

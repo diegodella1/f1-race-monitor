@@ -1,0 +1,34 @@
+# Changelog
+
+## 2.8.0 — 2026-09-07
+
+- Keep radio in English, prefer local English voices automatically, and rotate
+  shorter phrases without changing the facts of an already selected event.
+- Speak target laps to tenths and shorten recurring race balances and battle calls.
+- Limit dashboard streaming to 10 Hz with one acknowledged frame in flight per
+  modern client. Replace intermediate states instead of accumulating a backlog.
+- Record DEFERRED and SUBMITTED events to distinguish queue delay from speech
+  startup. Recover from missing speech callbacks with bounded timeouts.
+- Check the queue every 100 ms and confirm safe speaking windows for 500 ms.
+- Add regression coverage for English copy, voice selection and slow clients.
+
+The measured baseline and remaining work are documented in the
+[Brazil session review](docs/brazil-session-5-review.md). A new real-race recording
+is needed to quantify the improvement in audible latency.
+
+## 2.7.0 — 2026-09-07
+
+- Add active race follow-up, post-stop push phases and context-aware radio
+  scheduling with critical interruption and stale-message expiry.
+- Persist per-device delivery events with idempotent ingestion and bounded client
+  retries. Add filterable radio history to Analysis.
+- Correct immediate rejoin assumptions, separate pit-lane duration from net pit
+  loss, and suppress stale rival predictions in close battles.
+- Keep persistent damage as known context while allowing escalation to interrupt.
+- Make saved-session replay read-only and add focused Spa regression fixtures.
+- Document the systemd and Cloudflare deployment.
+
+## 2.6.0
+
+Previous published baseline: race engineer narrative, decision memory,
+telemetry-aware recommendations and persisted session analysis.
