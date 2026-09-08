@@ -1,3 +1,4 @@
+import { controlMessages, observeControlCounters } from './raceControl.js';
 import { messageIsCurrent } from './messagePolicy.js';
 import { radioText, radioEnglishText } from './radioCopy.js';
 import type { DecisionLogEntry, EngineerCondition, EngineerMessage, RaceMode, RaceState, RaceSummary, RivalTrend } from './types.js';
@@ -6,7 +7,6 @@ import { messageFamily, scoreMessage } from './scoring.js';
 type Seen={since:number;lastSeen:number};
 const numberGap=(value?:string,stale?:boolean)=>!stale&&value?.startsWith('+')?Number(value.slice(1)):null;
 const weight:Record<EngineerMessage['priority'],number>={critical:400,action:300,opportunity:200,info:100};
-const dry=(weather:string)=>!['Light rain','Heavy rain','Storm'].includes(weather);
 const rivalId=(rival?:{vehicleIndex?:number;name:string})=>String(rival?.vehicleIndex??rival?.name??'');
 type DamageKey=keyof RaceState['context']['damage'];
 type DamageMemory={value:number;band:number;status:EngineerCondition['status'];firstSeenLap:number;firstSeenAt:number;lastChangedLap:number};
@@ -32,11 +32,11 @@ export class RaceEngineer {
   private lastAheadGap:number|null=null;
   private lastBehindGap:number|null=null;
   private lastPassAt=-Infinity;
-  private lastWeather='';
-  private lastPenalties=0;
+  private controlPrevious:RaceState|null=null;
+  private weatherPublished=new Set<string>();
+  private weatherPrevious:EngineerMessage[]=[];
   private seen=new Map<string,Seen>();
   private events=new Map<string,EngineerMessage>();
-  private announcedForecasts=new Set<string>();
   private drsAnnouncedAt=new Map<string,number>();
   private predictionBands=new Map<string,number>();
   private log:DecisionLogEntry[]=[];
@@ -57,8 +57,8 @@ export class RaceEngineer {
     this.lastMessageAt=-Infinity;this.messageCount=0;this.countLap=-1;this.emittedEvents.clear();this.messageContexts.clear();this.phraseCounts.clear();this.lastOutlookLap=0;
     this.active=null;this.sessionKey='';this.lastLap=0;this.lastPosition=0;
     this.lastAheadId='';this.lastBehindId='';this.lastAheadGap=null;this.lastBehindGap=null;this.lastPassAt=-Infinity;
-    this.lastWeather='';this.lastPenalties=0;this.seen.clear();this.events.clear();
-    this.announcedForecasts.clear();this.drsAnnouncedAt.clear();this.predictionBands.clear();
+    this.controlPrevious=null;this.weatherPublished.clear();this.weatherPrevious=[];this.seen.clear();this.events.clear();
+    this.drsAnnouncedAt.clear();this.predictionBands.clear();
     this.log=[];this.logged.clear();this.lastMessageLap=-1;this.lastMode='LEARNING';this.lastModeMessageLap.clear();this.lastFamilyLap.clear();
     this.damageMemory.clear();this.wasPitting=false;
     this.seenIncidents.clear();this.startPosition=0;this.lastLapAnnounced=false;this.finishAnnounced=false;this.summary=null;
@@ -69,8 +69,17 @@ export class RaceEngineer {
     if(this.sessionKey&&(sessionKey!==this.sessionKey||(this.lastLap&&state.lap<this.lastLap)))this.reset();
     this.sessionKey=sessionKey;this.lastLap=state.lap;
     if(this.countLap!==state.lap){this.countLap=state.lap;this.messageCount=0;}
+    state=this.observeControl(state,now);
+    state={...state,engineer:{...state.engineer,weather:state.strategy.weather?.messages??[]}};
+    for(const message of state.engineer.weather??[]){
+      if(this.weatherPublished.has(message.eventId!))continue;
+      this.weatherPublished.add(message.eventId!);
+      this.record(message,state.lap,now,'EMITTED','Published to weather radio queue: '+(state.strategy.weather?.reason??message.evidence));
+    }
+    for(const message of this.weatherPrevious)if(!state.engineer.weather?.some(current=>current.eventId===message.eventId))this.record(message,state.lap,now,'RESOLVED','Weather notice expired, superseded or no longer valid');
+    this.weatherPrevious=state.engineer.weather??[];
     const terminal=['FINISHED','RETIRED'].includes(state.context.lifecycle);
-    if((!['CONNECTED','DEMO'].includes(state.status)&&!terminal)||state.context.category==='UNKNOWN')return {...state,sessionSummary:this.summary??state.sessionSummary,engineer:{primary:null,next:null,secondary:[],conditions:this.conditions(),log:[...this.log],metrics:{candidates:0,eligible:0,suppressed:0,lastMessageLap:this.lastMessageLap,silenceReason:state.status==='PAUSED'?'Game paused · last reliable state retained':'Waiting for identified telemetry'}}};
+    if((!['CONNECTED','DEMO'].includes(state.status)&&!terminal)||state.context.category==='UNKNOWN')return {...state,sessionSummary:this.summary??state.sessionSummary,engineer:{weather:state.engineer.weather,control:state.engineer.control,primary:null,next:null,secondary:[],conditions:this.conditions(),log:[...this.log],metrics:{candidates:0,eligible:0,suppressed:0,lastMessageLap:this.lastMessageLap,silenceReason:state.status==='PAUSED'?'Game paused · last reliable state retained':'Waiting for identified telemetry'}}};
 
     const ordered=[...state.drivers].filter(d=>d.position>0).sort((a,b)=>a.position-b.position),raceSession=state.context.category==='RACE'||state.context.category==='SPRINT';
     const me=ordered.find(d=>d.position===state.player.position),ahead=ordered.find(d=>d.position===state.player.position-1),behind=ordered.find(d=>d.position===state.player.position+1);
@@ -80,13 +89,6 @@ export class RaceEngineer {
     this.observeDamage(state,now);
     this.observeIncidents(state,aheadId,behindId,now);
     this.observeLifecycle(state,aheadGap,behindGap,now);
-
-    if(state.context.penalties>this.lastPenalties)this.addEvent({id:'penalty-'+state.context.penalties,priority:'action',title:state.context.penalties+'s PENALTY',evidence:'Race control increased the total penalty to '+state.context.penalties+' seconds.',action:'Build a safe margin to the car behind.',confidence:100,createdAt:now,expiresAt:now+12000});
-    this.lastPenalties=state.context.penalties;
-    if(this.lastWeather&&state.weather!==this.lastWeather)this.addEvent({id:'weather-'+state.weather,priority:'action',title:'CONDITIONS CHANGING',evidence:'Weather changed from '+this.lastWeather+' to '+state.weather+'.',action:'Reassess grip and tyre temperatures this lap.',confidence:94,createdAt:now,expiresAt:now+12000});
-    if(state.weather!=='—'&&state.weather!=='Unknown')this.lastWeather=state.weather;
-    const rain=state.context.weatherForecast.find(x=>x.minutes>0&&x.minutes<=15&&(x.rainPercentage>=40||!dry(x.weather)));
-    if(rain&&dry(state.weather)){const bucket=Math.ceil(rain.minutes/5),key=rain.weather+'-'+bucket;if(!this.announcedForecasts.has(key)){this.announcedForecasts.add(key);this.addEvent({id:'rain-forecast-'+key,priority:rain.minutes<=5?'action':'opportunity',title:'RAIN APPROACHING',evidence:rain.weather+' forecast in about '+rain.minutes+' min · '+rain.rainPercentage+'% rain.',action:'Watch the crossover and keep tyre temperatures under control.',confidence:88,createdAt:now,expiresAt:now+15000});}}
 
     if(raceSession&&ahead&&aheadId===this.lastAheadId&&this.lastAheadGap!==null&&this.lastAheadGap>1.25&&aheadGap!==null&&aheadGap<=1.05&&now-this.lastPassAt>=12000&&now-(this.drsAnnouncedAt.get('ahead:'+aheadId)??-Infinity)>=55000){
       this.drsAnnouncedAt.set('ahead:'+aheadId,now);
@@ -109,7 +111,7 @@ export class RaceEngineer {
     const raw:EngineerMessage[]=[];
     const add=(id:string,priority:EngineerMessage['priority'],title:string,evidence:string,action:string,confidence:number,ttl=8000)=>raw.push({id,priority,title,evidence,action,confidence,createdAt:now,expiresAt:now+ttl});
     for(const [key,event] of this.events){if(event.expiresAt<=now){this.events.delete(key);continue;}if(!terminal||['race-finished','race-retired'].includes(event.id))raw.push(event);}
-    if(state.strategy.recommendation&&!terminal)raw.push(state.strategy.recommendation);
+    if(state.strategy.recommendation&&!state.strategy.recommendation.weather&&!terminal)raw.push(state.strategy.recommendation);
     if(!terminal&&state.flag==='RED')add('red-flag','critical','RED FLAG','The session is stopped.','Reduce speed and follow race control.',100,15000);
     else if(!terminal&&state.safetyCar!=='NONE')add('safety-car','critical',state.safetyCar==='VSC'?'VIRTUAL SAFETY CAR':'SAFETY CAR','Overtaking restrictions are active.','Respect the delta and reassess the pit window.',100,12000);
     const hottest=Math.max(...state.player.tyreTemps),wear=Math.max(...state.context.tyreWear);
@@ -172,7 +174,21 @@ export class RaceEngineer {
       this.lastMessageLap=state.lap;this.lastMessageAt=now;if(!immediateMessage(this.active.id)&&this.active.priority!=='critical')this.messageCount++;this.emittedEvents.add(this.active.eventId!);if(this.active.id.startsWith('pace-outlook-'))this.lastOutlookLap=state.lap;this.lastFamilyLap.set(messageFamily(this.active.id),state.lap);this.record(this.active,state.lap,now,'EMITTED',`Selected as highest-value ${this.active.category?.toLowerCase()??'engineer'} message · score ${this.active.score??0}`);}
     const secondary=candidates.filter(x=>x.id!==this.active?.id).slice(0,2),next=secondary[0]??null,suppressed=Math.max(0,raw.length-candidates.length);
     const silenceReason=this.active?'Active decision remains valid':state.telemetry.score<60?'Telemetry confidence is too low for a tactical call':state.strategy.status==='LEARNING'?'Learning pace and rival trends':'No high-value change · continue current plan';
-    return {...state,sessionSummary:this.summary??state.sessionSummary,engineer:{primary:this.active,next,secondary,conditions:this.conditions(),log:[...this.log],metrics:{candidates:raw.length,eligible:candidates.length,suppressed,lastMessageLap:this.lastMessageLap,silenceReason}}};
+    return {...state,sessionSummary:this.summary??state.sessionSummary,engineer:{weather:state.engineer.weather,control:state.engineer.control,primary:this.active,next,secondary,conditions:this.conditions(),log:[...this.log],metrics:{candidates:raw.length,eligible:candidates.length,suppressed,lastMessageLap:this.lastMessageLap,silenceReason}}};
+  }
+
+  private observeControl(state:RaceState,now:number):RaceState {
+    const previous=this.controlPrevious;
+    const raceControl=state.raceControl??observeControlCounters({
+      ...state,updatedAt:now,raceControl:previous?.raceControl,
+      context:{...state.context,penalties:previous?.context.penalties??0,warnings:previous?.context.warnings??0},
+    },state.context.penalties,state.context.warnings);
+    const next={...state,raceControl};
+    const messages=controlMessages(next,now);
+    for(const message of messages)this.record(message,raceControl.events.find(event=>event.id===message.id)?.lap??state.lap,now,'EMITTED','Published to race control radio queue; delivery tracked per device');
+    for(const message of previous?.engineer.control??[])if(!messages.some(current=>current.id===message.id))this.record(message,state.lap,now,'RESOLVED','Race control event cleared or no longer relevant');
+    this.controlPrevious={...next,engineer:{...state.engineer,control:messages}};
+    return this.controlPrevious;
   }
 
   private observeLifecycle(state:RaceState,aheadGap:number|null,behindGap:number|null,now:number){

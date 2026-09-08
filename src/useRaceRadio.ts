@@ -60,7 +60,7 @@ export function useRaceRadio(state:RaceState):RaceRadioController {
     return()=>{window.clearInterval(poll);window.clearInterval(flush);window.removeEventListener('pagehide',onHide);current.clear('Radio unmounted');queue.current=null;void flushDeliveries();};
   },[supported]);
 
-  const toggle=useCallback(()=>{if(!supported)return;if(armed){queue.current?.clear();window.speechSynthesis.cancel();setArmed(false);setStatus('OFF');return;}setArmed(true);setStatus('READY');},[armed,supported]);
+  const toggle=useCallback(()=>{if(!supported)return;if(armed){queue.current?.clear();window.speechSynthesis.cancel();setArmed(false);setStatus('OFF');return;}queue.current?.activate(stateRef.current,Date.now());setArmed(true);setStatus('READY');},[armed,supported]);
   const test=useCallback(()=>{queue.current?.clear('Manual voice test');speak({es:'Radio lista. Audio y prioridades funcionando.',en:'Race radio ready. Audio and priorities are working.'},false,true)},[speak]);
   const repeat=useCallback(()=>{if(lastTextRef.current){queue.current?.clear('Manual repeat');speak({es:lastTextRef.current,en:lastTextRef.current},false,true)}},[speak]);
   const update=useCallback((patch:Partial<RadioPreferences>)=>setPreferences(old=>({...old,...patch})),[]);

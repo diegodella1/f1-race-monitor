@@ -2,6 +2,70 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { RadioQueue } from './radioQueue';
 import { initialState } from '../server/state.js';
+import { controlMessages, observeControlCounters } from '../server/raceControl.js';
+
+function withControls(s:ReturnType<typeof initialState>,at=1000){
+  s.updatedAt=at;s.sessionTime=10;
+  s.raceControl=observeControlCounters(s,2,1);
+  s.context.penalties=2;s.context.warnings=1;
+  s.engineer.control=controlMessages(s,at+2000);
+}
+
+test('control notices survive a busy radio beyond 30 seconds, ahead of ordinary calls',()=>{
+  const {queue,s,m,spoken,finish,log}=setup();
+  queue.update({...m,id:'contact',eventId:'contact',priority:'critical'},s,'Contact',0);
+  withControls(s);queue.update(m,s,'Push',3000);
+  queue.update(null,s,'',35000);assert.deepEqual(spoken,['Contact']);
+  finish();queue.update(null,s,'',36000);assert.match(spoken[1],/2.second penalty/i);
+  finish();queue.update(null,s,'',36100);assert.match(spoken[2],/warning/i);
+  finish();queue.update(null,s,'',37000);assert.ok(log.some(x=>x.includes('COMPLETED')));
+  assert.equal(spoken.filter(x=>/penalty/i.test(x)).length,1);
+});
+
+test('control notices bypass the ordinary budget and survive pause',()=>{
+  const {queue,s,m,spoken,finish}=setup();
+  for(let i=0;i<3;i++){queue.update({...m,eventId:'ordinary-'+i,expiresAt:120000},s,'Ordinary',i*16000);finish();}
+  s.status='PAUSED';withControls(s,33000);queue.update(null,s,'',35000);
+  s.status='CONNECTED';queue.update(null,s,'',36000);assert.match(spoken[3],/penalty/i);
+});
+
+test('activation skips old events and announces current totals once',()=>{
+  const {queue,s,spoken,finish}=setup();withControls(s);
+  queue.activate(s,10000);queue.update(null,s,'',10000);assert.equal(spoken.length,1);assert.match(spoken[0],/status/i);
+  finish();queue.update(null,s,'',12000);assert.equal(spoken.length,1);
+});
+
+test('finish updates a pending sanction and discards pending warnings',()=>{
+  const {queue,s,m,spoken,finish,log}=setup();
+  queue.update({...m,priority:'critical'},s,'Contact',0);withControls(s);queue.update(null,s,'',3000);
+  s.context.lifecycle='FINISHED';s.engineer.control=controlMessages(s,4000);
+  finish();queue.update(null,s,'',4000);assert.match(spoken[1],/Session ended/);
+  finish();queue.update(null,s,'',4100);assert.equal(spoken.length,2);assert.ok(log.some(x=>x.includes('EXPIRED')));
+});
+
+test('flashback within the same lap drops queued control events',()=>{
+  const {queue,s,m,log,spoken,finish}=setup();
+  queue.update({...m,priority:'critical'},s,'Contact',0);withControls(s);queue.update(null,s,'',3000);
+  s.raceControl={generation:1,events:[]};s.engineer.control=[];
+  finish();queue.update(null,s,'',4000);assert.equal(spoken.length,1);assert.ok(log.some(x=>x.includes('CANCELLED')));
+});
+
+test('an interrupted penalty is retried after critical safety speech',()=>{
+  const {queue,s,m,spoken,finish,log}=setup();withControls(s);queue.update(null,s,'',3000);
+  assert.match(spoken[0],/penalty/i);
+  queue.update({...m,priority:'critical'},s,'Contact',3100);assert.equal(spoken[1],'Contact');
+  finish();queue.update(null,s,'',5000);assert.match(spoken[2],/penalty/i);
+  finish();assert.equal(log.filter(x=>x.includes('penalty-')&&x.includes('COMPLETED')).length,1);
+});
+
+test('a reversed penalty is discarded while queued and the next same-size penalty is new',()=>{
+  const {queue,s,m,spoken,finish,log}=setup();queue.update(m,s,'Push',0);withControls(s);queue.update(null,s,'',3000);
+  s.sessionTime=11;s.raceControl=observeControlCounters(s,0,1);s.context.penalties=0;s.engineer.control=controlMessages(s,4000);
+  finish();queue.update(null,s,'',4000);assert.ok(!spoken.some(text=>/penalty/i.test(text)));
+  assert.ok(log.some(x=>x.includes('penalty-')&&x.includes('EXPIRED')));
+  finish();s.sessionTime=12;s.updatedAt=5000;s.raceControl=observeControlCounters(s,2,1);s.context.penalties=2;s.engineer.control=controlMessages(s,7000);
+  queue.update(null,s,'',7000);assert.match(spoken.at(-1)!,/penalty/i);
+});
 
 function setup(){
   const log:string[]=[],spoken:string[]=[];

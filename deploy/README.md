@@ -12,10 +12,20 @@ including Socket.IO. The game sends UDP directly over the local network.
 
 ## Update
 
-Run `npm ci`, `npm run check`, `npm test`, and `npm run build` before
-`sudo systemctl restart f1-race-monitor.service`.
-Keep a copy of the previous `dist/` and `dist-server/` before rebuilding for rollback.
-Back up SQLite while the service is stopped, or use SQLite's online backup API.
+Run `npm ci`, `npm run check` and `npm test`. Compile into an ignored staging
+directory so production continues serving a complete build:
+
+```bash
+node node_modules/typescript/bin/tsc -p server/tsconfig.json --outDir work/release/dist-server
+node node_modules/vite/bin/vite.js build --outDir work/release/dist
+```
+
+Keep copies of the current `dist/` and `dist-server/` under a dated `work/` backup.
+Stop the service, copy SQLite together with any WAL/SHM files, replace both build
+directories with the staged artifacts, then start the service. Keep file access
+compatible with the service user `diego`. If startup or verification fails, stop
+the service, restore both previous build directories and start again.
+Record the deployed Git commit and backup location under `work/`.
 
 ## Verify
 
@@ -35,8 +45,8 @@ protocol. Test audio with a user gesture and an available English voice.
 
 Stop the service, restore the previous `dist/` and `dist-server/`, then start the
 service and repeat the checks above. Keep the current database: the 2.7 migration
-adds radio tables and indexes without removing existing session tables, and 2.8
-requires no additional schema migration. Reverting application code does not
+adds radio tables and indexes without removing existing session tables, and 2.8/2.9
+require no additional schema migration. Reverting application code does not
 require reverting the database or removing the tunnel route.
 
 Retain the database backup for recovery. Restoring it would discard sessions

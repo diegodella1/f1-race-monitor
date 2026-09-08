@@ -16,13 +16,16 @@ const coach=new DrivingCoach(),strategy=new PitwallStrategy(),engineer=new RaceE
 const emitted=new Set<string>();
 for(const frame of frames){
   const defaults=initialState();
-  let state=coach.analyze({...frame.state,telemetry:frame.state.telemetry??defaults.telemetry,engineer:frame.state.engineer?.metrics?frame.state.engineer:defaults.engineer},frame.recordedAt);
+  let state={...frame.state,telemetry:frame.state.telemetry??defaults.telemetry,engineer:frame.state.engineer?.metrics?frame.state.engineer:defaults.engineer};
   state=strategy.analyze(state,frame.recordedAt);
+  state=coach.analyze(state,frame.recordedAt);
   state=engineer.analyze(state,frame.recordedAt);
-  const message=state.engineer.primary;
-  const eventKey=message?.eventId??(message?message.id+':'+message.createdAt:'');
-  if(message&&!emitted.has(eventKey))messages.push({lap:state.lap,at:frame.recordedAt,id:message.id,title:message.title,score:message.score??0,confidence:message.confidence,action:message.action});
-  if(message)emitted.add(eventKey);
+  for(const message of [state.engineer.primary,...(state.engineer.control??[]),...(state.engineer.weather??[])]){
+    if(!message)continue;
+    const eventKey=message.eventId??message.id+':'+message.createdAt;
+    if(!emitted.has(eventKey))messages.push({lap:state.lap,at:frame.recordedAt,id:message.id,title:message.title,score:message.score??0,confidence:message.confidence,action:message.action});
+    emitted.add(eventKey);
+  }
 }
 console.log(JSON.stringify({sessionId,frames:frames.length,report,messages},null,2));
 store.close();

@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.9.0 — 2026-09-08
+
+- Retain penalties and warnings in a dedicated radio queue, correlate PENA events
+  with lap counters, and show current race-control totals on the pitwall.
+- Handle pause, flashback, repeated sanctions and interruption without silently
+  replacing relevant notices. Add a regression from the Bahrain recording.
+- Announce confirmed weather changes and rain forecasts with time and probability.
+- Recommend slicks, intermediates or full wets using comparable rival pace and
+  estimated net benefit after pit loss. Cancel stale or neutralized weather calls.
+- Add a weather panel and decision history; reset obsolete pace and corner
+  references through weather transitions.
+- Correct dry-compound compliance: rain alone does not waive the requirement.
+- Preserve rival lap quality through participant refreshes.
+- Validate 111 tests, frontend/backend types and production builds. Wet-weather
+  scenarios are synthetic; calibration with a real wet race remains pending.
+- Keep existing snapshots readable without a schema migration.
+
 ## 2.8.0 — 2026-09-07
 
 - Keep radio in English, prefer local English voices automatically, and rotate

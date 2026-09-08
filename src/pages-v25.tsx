@@ -1,3 +1,5 @@
+import { WeatherPanel } from './WeatherPanel';
+import { controlTitle, controlDetail } from '../server/raceControl';
 import { useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { Activity, AlertTriangle, Check, ChevronRight, Headphones, Info, Play, Radio, RotateCcw, Thermometer, Wifi, Zap } from 'lucide-react';
@@ -17,7 +19,9 @@ const Tyre=({compound,age}:{compound:string;age?:number})=><span className="tyre
 const Gauge=({label,value,max=100,unit='',tone='cyan'}:{label:string;value:number;max?:number;unit?:string;tone?:string})=><div className="gauge"><div><span>{label}</span><b>{Math.round(value)}{unit}</b></div><em><i className={tone} style={{width:`${Math.min(100,Math.max(0,value/max*100))}%`}}/></em></div>;
 
 function DecisionCallout({s}:{s:RaceState}){
-  const coaching=!!s.coach.message&&(!s.engineer.primary||s.engineer.primary.priority==='info'),message=coaching?s.coach.message:s.engineer.primary,next=coaching?null:s.engineer.next;
+  const weatherBox=s.engineer.weather?.find(message=>message.weather?.kind==='BOX');
+  const primary=s.engineer.primary?.priority==='critical'?s.engineer.primary:weatherBox??s.engineer.primary;
+  const coaching=!!s.coach.message&&(!primary||primary.priority==='info'),message=coaching?s.coach.message:primary,next=coaching||primary===weatherBox?null:s.engineer.next;
   const command=message?.title.split('·')[0].trim()||s.strategy.raceMode;
   return <article className={`decision-callout ${message?.priority||'clear'} ${coaching?'coach':''}`}>
     <div className="decision-kicker"><span>{coaching?'DRIVING COACH':'RACE ENGINEER'}</span><small>{message?`${message.confidence}% CONF · DATA ${s.telemetry.confidence}`:`DATA ${s.telemetry.confidence} ${s.telemetry.score}%`}</small></div>
@@ -64,17 +68,27 @@ function FinishSummary({s}:{s:RaceState}){
 }
 
 function RaceControl({s}:{s:RaceState}){
-  const alerts=s.alerts.slice(0,5);
-  return <article className="panel race-control"><SectionTitle meta="RELEVANT EVENTS">RACE CONTROL</SectionTitle>{alerts.length?<div className="race-control-list">{alerts.map(alert=><div className={alert.level} key={alert.id}><i/><span><b>{alert.title}</b><small>{alert.detail}</small></span></div>)}</div>:<div className="race-control-clear"><Check/><span>No active incidents</span></div>}</article>;
+  const controls=(s.raceControl?.events??[]).filter(event=>event.active).slice(-5).reverse();
+  const alerts=s.alerts.filter(alert=>!s.raceControl||! /^(penalty|warning)-/.test(alert.id)).slice(0,5);
+  return <article className="panel race-control">
+    <SectionTitle meta="YOUR CAR">RACE CONTROL</SectionTitle>
+    <div className="race-control-totals" role="status" aria-live="polite">
+      <div className={s.context.penalties?'has-penalty':''}><strong>{s.context.penalties}s</strong><span>TIME PENALTIES</span></div>
+      <div className={s.context.warnings?'has-warning':''}><strong>{s.context.warnings}</strong><span>WARNINGS</span></div>
+    </div>
+    {controls.length>0&&<div className="race-control-list">{controls.map(event=><div className={event.kind==='WARNING'?'warning':'critical'} key={event.id}><i/><span><b>{controlTitle(event)}</b><small>Lap {event.lap} · {controlDetail(event)}</small></span></div>)}</div>}
+    {alerts.length>0&&<div className="race-control-list">{alerts.map(alert=><div className={alert.level} key={alert.id}><i/><span><b>{alert.title}</b><small>{alert.detail}</small></span></div>)}</div>}
+    {!controls.length&&!alerts.length&&<div className="race-control-clear"><Check/><span>No recent race control events</span></div>}
+  </article>;
 }
 
 function RaceWorkspace({s}:{s:RaceState}){
-  return <div className="pitwall-layout"><div className="pitwall-main"><DecisionCallout s={s}/><FinishSummary s={s}/><BattleMatrix s={s}/><KnownConditions s={s}/></div><aside className="pitwall-side"><GapTrendChart s={s}/><ThermalMatrix s={s}/><StrategyPanel s={s}/><RaceControl s={s}/></aside></div>;
+  return <div className="pitwall-layout"><div className="pitwall-main"><DecisionCallout s={s}/><FinishSummary s={s}/><BattleMatrix s={s}/><KnownConditions s={s}/></div><aside className="pitwall-side"><GapTrendChart s={s}/><ThermalMatrix s={s}/><StrategyPanel s={s}/><WeatherPanel state={s}/><RaceControl s={s}/></aside></div>;
 }
 
 function SessionWorkspace({s}:{s:RaceState}){
   const qualifying=s.context.category==='QUALIFYING',practice=s.context.category==='PRACTICE'||s.context.category==='TIME_TRIAL';
-  return <div className={`session-workspace ${qualifying?'qualifying':'practice'}`}><DecisionCallout s={s}/><article className="panel run-hero"><SectionTitle meta={qualifying?'ONE LAP PERFORMANCE':'REFERENCE BUILDING'}>{qualifying?'QUALIFYING RUN':'PRACTICE PROGRAMME'}</SectionTitle><div className="run-time"><small>CURRENT LAP</small><strong>{s.context.currentLapTime}</strong><span>{s.context.lapInvalid?'INVALID':'LIVE'} · BEST {s.player.bestLap}</span></div><div className="run-sectors"><div><span>S1</span><b>{s.context.sector1}</b></div><div><span>S2</span><b>{s.context.sector2}</b></div><div><span>S3</span><b>—</b></div></div></article><article className="panel run-resources"><SectionTitle>{qualifying?'RUN RESOURCES':'PROGRAMME STATUS'}</SectionTitle><div className="resource-grid"><div><span>{qualifying?'SESSION LEFT':'CLEAN LAPS'}</span><b>{qualifying?duration(s.context.timeLeft):s.coach.lapsLearned}</b></div><div><span>ERS</span><b>{s.player.ers}%</b></div><div><span>FUEL</span><b>{s.player.fuel.toFixed(1)} kg</b></div><div><span>TYRE</span><b>{s.player.tyre} {s.player.tyreAge}L</b></div></div></article><ThermalMatrix s={s}/><article className="panel coach-focus"><SectionTitle meta={s.coach.status}>DRIVING FOCUS</SectionTitle>{s.coach.message?<><b>{s.coach.message.title}</b><p>{s.coach.message.action}</p></>:<><b>{practice?'BUILD A CLEAN REFERENCE':'PREPARE THE LAP'}</b><p>{practice?'Complete a representative lap before changing the programme.':'Protect tyre temperature and deploy ERS on the timed lap.'}</p></>}</article><KnownConditions s={s}/></div>;
+  return <div className={`session-workspace ${qualifying?'qualifying':'practice'}`}><DecisionCallout s={s}/><article className="panel run-hero"><SectionTitle meta={qualifying?'ONE LAP PERFORMANCE':'REFERENCE BUILDING'}>{qualifying?'QUALIFYING RUN':'PRACTICE PROGRAMME'}</SectionTitle><div className="run-time"><small>CURRENT LAP</small><strong>{s.context.currentLapTime}</strong><span>{s.context.lapInvalid?'INVALID':'LIVE'} · BEST {s.player.bestLap}</span></div><div className="run-sectors"><div><span>S1</span><b>{s.context.sector1}</b></div><div><span>S2</span><b>{s.context.sector2}</b></div><div><span>S3</span><b>—</b></div></div></article><article className="panel run-resources"><SectionTitle>{qualifying?'RUN RESOURCES':'PROGRAMME STATUS'}</SectionTitle><div className="resource-grid"><div><span>{qualifying?'SESSION LEFT':'CLEAN LAPS'}</span><b>{qualifying?duration(s.context.timeLeft):s.coach.lapsLearned}</b></div><div><span>ERS</span><b>{s.player.ers}%</b></div><div><span>FUEL</span><b>{s.player.fuel.toFixed(1)} kg</b></div><div><span>TYRE</span><b>{s.player.tyre} {s.player.tyreAge}L</b></div></div></article><ThermalMatrix s={s}/><article className="panel coach-focus"><SectionTitle meta={s.coach.status}>DRIVING FOCUS</SectionTitle>{s.coach.message?<><b>{s.coach.message.title}</b><p>{s.coach.message.action}</p></>:<><b>{practice?'BUILD A CLEAN REFERENCE':'PREPARE THE LAP'}</b><p>{practice?'Complete a representative lap before changing the programme.':'Protect tyre temperature and deploy ERS on the timed lap.'}</p></>}</article><WeatherPanel state={s}/><KnownConditions s={s}/></div>;
 }
 
 export function RacePage({s}:{s:RaceState}){if(s.status==='WAITING')return <Waiting/>;return ['RACE','SPRINT'].includes(s.context.category)?<RaceWorkspace s={s}/>:<SessionWorkspace s={s}/>}

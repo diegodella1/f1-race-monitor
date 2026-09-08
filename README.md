@@ -34,7 +34,7 @@ The default HUD tells you what is happening. A race engineer should help you dec
 - **Real car state:** wing, floor, sidepod, gearbox, engine, temperatures and tyre wear.
 - **Every session type:** tailored views for practice, qualifying and race.
 
-## Current release: V2.8 — English Radio and Live Delivery
+## Current release: V2.9 — Race Control and Weather Strategy
 
 | Area | What you get |
 | --- | --- |
@@ -51,9 +51,24 @@ The default HUD tells you what is happening. A race engineer should help you dec
 | Race narrative | One final-lap call, a chequered-flag message when telemetry confirms the finish and a persisted session summary |
 | Radio delivery | Active race follow-up, context-aware queue and per-device delivery history in Analysis |
 | Rival policy | Stable multi-lap trends, actionable gap bands and reset-safe calls when the rival changes |
-| Race Control | Normalized collisions and retirements, with voice reserved for the player and immediate rivals |
+| Race Control | Penalties and warnings retained through busy radio, current totals and normalized nearby incidents |
+| Weather | Confirmed weather changes, timed rain forecasts and tyre-family advice backed by comparable rival pace |
 | Strategy guardrails | Suppressed routine terminal-lap box calls, stronger degradation evidence and short-lived tactical opportunity latching |
 | Adaptive layout | Dedicated race, qualifying and practice workspaces with separate tablet and desktop compositions |
+
+### New in V2.9
+
+Penalties and warnings have a dedicated radio queue, so contacts and routine calls
+do not silently replace them. The pitwall shows current race-control totals.
+
+Weather notices include forecast timing and rain probability. Tyre advice covers
+slicks, intermediates and full wets; a weather box call requires two comparable
+rivals and enough remaining gain to recover the stop. Advice is cancelled when
+conditions or telemetry change. Dry pace and corner references are reset during
+weather transitions. Real wet-race calibration remains pending.
+
+See [weather strategy and radio rules](docs/active-engineer.md) for evidence
+thresholds, expiry and history. This release requires no database migration.
 
 ## Quick start
 
@@ -160,7 +175,7 @@ The [Brazil session review](docs/brazil-session-5-review.md) documents the basel
 - Add factual post-push and stint feedback from comparable laps
 
 - More circuit-aware corner coaching built from lap deltas
-- Stronger safety-car and mixed-weather strategy models
+- Calibrate mixed-weather strategy with real wet-race recordings and improve safety-car pit decisions
 - Session comparison and export
 - Broader validation against real F1 25 packet captures
 - Installable desktop/mobile packaging

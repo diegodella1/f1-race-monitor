@@ -1,3 +1,4 @@
+import { tyreFamily } from './weatherEvidence.js';
 import type { EngineerMessage, LapInsight, LapTracePoint, RaceState } from './types.js';
 
 type Point={distance:number;speed:number;brake:number;throttle:number;steer:number};
@@ -25,7 +26,7 @@ export class DrivingCoach {
   reset(){this.lap=0;this.sessionKey='';this.points=[];this.reference=[];this.referencePoints=[];this.referenceLapMs=Number.POSITIVE_INFINITY;this.referenceLap=0;this.lapsLearned=0;this.message=null;this.lastSample=0;this.quality={invalid:false,pit:false,unsafe:false};this.confirmations.clear();this.lastMessageKey='';this.lastMessageLap=0;this.insights=[];}
 
   analyze(state:RaceState,now=Date.now()):RaceState {
-    const key=`${state.sessionUid}:${state.sessionLinkId}:${state.sessionType}`;
+    const key=`${state.sessionUid}:${state.sessionLinkId}:${state.sessionType}:${state.strategy.weather?.epoch??0}:${tyreFamily(state.player.tyre)}`;
     if(this.sessionKey&&(key!==this.sessionKey||(this.lap&&state.lap<this.lap)))this.reset();
     this.sessionKey=key;
     if(this.message&&this.message.expiresAt<now)this.message=null;
@@ -41,7 +42,8 @@ export class DrivingCoach {
     this.quality.invalid||=state.context.lapInvalid;
     this.quality.pit||=state.player.pit||state.player.driverStatus===2||state.player.driverStatus===3;
     const structuralDamage=Math.max(state.context.damage.frontWing,state.context.damage.rearWing,state.context.damage.floor,state.context.damage.diffuser,state.context.damage.sidepod,state.context.damage.gearbox,state.context.damage.engine,state.context.damage.brakes);
-    this.quality.unsafe||=structuralDamage>=30||state.safetyCar!=='NONE'||state.flag!=='GREEN';
+    this.quality.unsafe||=!!state.strategy.weather?.transition||(!state.strategy.weather?.fresh&&state.strategy.weather?.observed!==undefined&&state.strategy.weather.observed!=='UNKNOWN')||structuralDamage>=30||state.safetyCar!=='NONE'||state.flag!=='GREEN';
+    if(this.quality.unsafe)this.message=null;
     if(now-this.lastSample>=100&&state.player.speed>20&&Number.isFinite(state.player.lapDistance)){
       this.lastSample=now;
       this.points.push({distance:state.player.lapDistance,speed:state.player.speed,brake:state.player.brake,throttle:state.player.throttle,steer:Math.abs(state.player.steer)});

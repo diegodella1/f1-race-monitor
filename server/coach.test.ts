@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DrivingCoach } from './coach.js';
 import { initialState } from './state.js';
+import { WeatherStrategy } from './weather.js';
 
 function coachState(){const state=initialState();state.status='CONNECTED';state.sessionUid='coach';state.sessionLinkId=1;state.sessionType='Practice 1';state.track='Monza';state.context.category='PRACTICE';state.context.trackLength=6000;state.player.driverStatus=4;return state;}
 function sampleLap(coach:DrivingCoach,state:ReturnType<typeof coachState>,lap:number,start:number,earlySecond=false,invalid=false){state.lap=lap;state.context.lapInvalid=invalid;for(let i=0;i<120;i++){const inCorner=[20,55,90].some(x=>i>=x&&i<=x+8),brakePoints=[15,earlySecond?45:50,85];state.player.lapDistance=i*50;state.player.steer=inCorner?.32:0;state.player.brake=brakePoints.some(x=>i>=x&&i<=x+7)?70:0;state.player.throttle=state.player.brake?0:100;state.player.speed=inCorner?120:250;coach.analyze(state,start+i*100);}state.context.lapInvalid=false;}
@@ -14,3 +15,13 @@ test('coach exposes lap traces, ignores invalid laps and waits for a repeated is
 });
 
 test('normal tyre damage does not block a clean lap reference',()=>{const coach=new DrivingCoach(),state=coachState();state.context.damage.tyres=25;sampleLap(coach,state,1,1000);state.player.lastLap='1:30.000';const result=coach.analyze({...state,lap:2},14000);assert.equal(result.coach.analysis.referenceLap,1);assert.equal(result.coach.lapsLearned,1)});
+
+test('weather transitions discard the dry reference and suppress corner instructions',()=>{
+  const coach=new DrivingCoach(),state=coachState();sampleLap(coach,state,1,1000);state.player.lastLap='1:30.000';
+  assert.equal(coach.analyze({...state,lap:2},14000).coach.lapsLearned,1);
+  const weather=new WeatherStrategy().analyze(state,state.strategy.plan,15000);
+  state.strategy.weather={...weather,epoch:10,fresh:true,transition:true,observed:'LIGHT_RAIN'};
+  const result=coach.analyze({...state,lap:2},15000);
+  assert.equal(result.coach.lapsLearned,0);assert.equal(result.coach.message,null);
+  assert.equal(result.coach.analysis.reference.length,0);
+});

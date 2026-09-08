@@ -1,0 +1,385 @@
+[
+  {
+    "at": 0,
+    "sessionTime": 0,
+    "lap": 0,
+    "penalties": 0,
+    "warnings": 0,
+    "incidents": []
+  },
+  {
+    "at": 2002,
+    "sessionTime": 0,
+    "lap": 1,
+    "penalties": 0,
+    "warnings": 0,
+    "incidents": []
+  },
+  {
+    "at": 4005,
+    "sessionTime": 0,
+    "lap": 1,
+    "penalties": 0,
+    "warnings": 0,
+    "incidents": []
+  },
+  {
+    "at": 6007,
+    "sessionTime": 0,
+    "lap": 1,
+    "penalties": 0,
+    "warnings": 0,
+    "incidents": []
+  },
+  {
+    "at": 8013,
+    "sessionTime": 1.4182289838790894,
+    "lap": 1,
+    "penalties": 0,
+    "warnings": 0,
+    "incidents": []
+  },
+  {
+    "at": 10060,
+    "sessionTime": 3.470231056213379,
+    "lap": 1,
+    "penalties": 0,
+    "warnings": 0,
+    "incidents": []
+  },
+  {
+    "at": 12063,
+    "sessionTime": 5.472207546234131,
+    "lap": 1,
+    "penalties": 0,
+    "warnings": 0,
+    "incidents": []
+  },
+  {
+    "at": 14073,
+    "sessionTime": 7.474003314971924,
+    "lap": 1,
+    "penalties": 0,
+    "warnings": 0,
+    "incidents": []
+  },
+  {
+    "at": 16116,
+    "sessionTime": 9.526049613952637,
+    "lap": 1,
+    "penalties": 0,
+    "warnings": 0,
+    "incidents": []
+  },
+  {
+    "at": 18152,
+    "sessionTime": 11.561752319335938,
+    "lap": 1,
+    "penalties": 0,
+    "warnings": 0,
+    "incidents": [
+      {
+        "id": "collision-1-11.378-21-15",
+        "kind": "COLLISION",
+        "lap": 1,
+        "at": 17969,
+        "vehicleIndices": [
+          21,
+          15
+        ],
+        "title": "Recorded contact",
+        "detail": "Contact involving the player.",
+        "severity": "warning"
+      }
+    ]
+  },
+  {
+    "at": 20160,
+    "sessionTime": 13.563446044921875,
+    "lap": 1,
+    "penalties": 0,
+    "warnings": 0,
+    "incidents": [
+      {
+        "id": "collision-1-12.012-21-3",
+        "kind": "COLLISION",
+        "lap": 1,
+        "at": 18604,
+        "vehicleIndices": [
+          21,
+          3
+        ],
+        "title": "Recorded contact",
+        "detail": "Contact involving the player.",
+        "severity": "warning"
+      }
+    ]
+  },
+  {
+    "at": 22160,
+    "sessionTime": 15.565361022949219,
+    "lap": 1,
+    "penalties": 2,
+    "warnings": 0,
+    "incidents": []
+  },
+  {
+    "at": 24162,
+    "sessionTime": 17.567319869995117,
+    "lap": 1,
+    "penalties": 2,
+    "warnings": 0,
+    "incidents": [
+      {
+        "id": "collision-1-16.199-21-15",
+        "kind": "COLLISION",
+        "lap": 1,
+        "at": 22790,
+        "vehicleIndices": [
+          21,
+          15
+        ],
+        "title": "Recorded contact",
+        "detail": "Contact involving the player.",
+        "severity": "warning"
+      },
+      {
+        "id": "collision-1-16.016-11-21",
+        "kind": "COLLISION",
+        "lap": 1,
+        "at": 22612,
+        "vehicleIndices": [
+          11,
+          21
+        ],
+        "title": "Recorded contact",
+        "detail": "Contact involving the player.",
+        "severity": "warning"
+      }
+    ]
+  },
+  {
+    "at": 26162,
+    "sessionTime": 19.569278717041016,
+    "lap": 1,
+    "penalties": 2,
+    "warnings": 0,
+    "incidents": []
+  },
+  {
+    "at": 28162,
+    "sessionTime": 21.571304321289062,
+    "lap": 1,
+    "penalties": 2,
+    "warnings": 0,
+    "incidents": [
+      {
+        "id": "collision-1-20.020-21-11",
+        "kind": "COLLISION",
+        "lap": 1,
+        "at": 26613,
+        "vehicleIndices": [
+          21,
+          11
+        ],
+        "title": "Recorded contact",
+        "detail": "Contact involving the player.",
+        "severity": "warning"
+      }
+    ]
+  },
+  {
+    "at": 30164,
+    "sessionTime": 23.573274612426758,
+    "lap": 1,
+    "penalties": 2,
+    "warnings": 0,
+    "incidents": []
+  },
+  {
+    "at": 32166,
+    "sessionTime": 25.575176239013672,
+    "lap": 1,
+    "penalties": 2,
+    "warnings": 0,
+    "incidents": []
+  },
+  {
+    "at": 34167,
+    "sessionTime": 27.577199935913086,
+    "lap": 1,
+    "penalties": 2,
+    "warnings": 0,
+    "incidents": []
+  },
+  {
+    "at": 36203,
+    "sessionTime": 29.612506866455078,
+    "lap": 1,
+    "penalties": 2,
+    "warnings": 0,
+    "incidents": []
+  },
+  {
+    "at": 38205,
+    "sessionTime": 31.614551544189453,
+    "lap": 1,
+    "penalties": 2,
+    "warnings": 0,
+    "incidents": [
+      {
+        "id": "collision-1-30.680-16-21",
+        "kind": "COLLISION",
+        "lap": 1,
+        "at": 37272,
+        "vehicleIndices": [
+          16,
+          21
+        ],
+        "title": "Recorded contact",
+        "detail": "Contact involving the player.",
+        "severity": "warning"
+      }
+    ]
+  },
+  {
+    "at": 40213,
+    "sessionTime": 33.6164436340332,
+    "lap": 1,
+    "penalties": 2,
+    "warnings": 0,
+    "incidents": []
+  },
+  {
+    "at": 42213,
+    "sessionTime": 35.618438720703125,
+    "lap": 1,
+    "penalties": 2,
+    "warnings": 0,
+    "incidents": []
+  },
+  {
+    "at": 44214,
+    "sessionTime": 37.620487213134766,
+    "lap": 1,
+    "penalties": 2,
+    "warnings": 0,
+    "incidents": []
+  },
+  {
+    "at": 46217,
+    "sessionTime": 39.62241744995117,
+    "lap": 1,
+    "penalties": 2,
+    "warnings": 0,
+    "incidents": []
+  },
+  {
+    "at": 48219,
+    "sessionTime": 41.624420166015625,
+    "lap": 1,
+    "penalties": 2,
+    "warnings": 0,
+    "incidents": []
+  },
+  {
+    "at": 50219,
+    "sessionTime": 43.62649154663086,
+    "lap": 1,
+    "penalties": 2,
+    "warnings": 0,
+    "incidents": []
+  },
+  {
+    "at": 52255,
+    "sessionTime": 45.66228485107422,
+    "lap": 1,
+    "penalties": 2,
+    "warnings": 0,
+    "incidents": []
+  },
+  {
+    "at": 54255,
+    "sessionTime": 47.66374206542969,
+    "lap": 1,
+    "penalties": 2,
+    "warnings": 0,
+    "incidents": []
+  },
+  {
+    "at": 56260,
+    "sessionTime": 49.665748596191406,
+    "lap": 1,
+    "penalties": 2,
+    "warnings": 0,
+    "incidents": [
+      {
+        "id": "collision-1-48.398-17-21",
+        "kind": "COLLISION",
+        "lap": 1,
+        "at": 54991,
+        "vehicleIndices": [
+          17,
+          21
+        ],
+        "title": "Recorded contact",
+        "detail": "Contact involving the player.",
+        "severity": "warning"
+      }
+    ]
+  },
+  {
+    "at": 58261,
+    "sessionTime": 51.6677131652832,
+    "lap": 1,
+    "penalties": 2,
+    "warnings": 0,
+    "incidents": []
+  },
+  {
+    "at": 60262,
+    "sessionTime": 53.669677734375,
+    "lap": 1,
+    "penalties": 2,
+    "warnings": 0,
+    "incidents": [
+      {
+        "id": "collision-1-52.402-21-17",
+        "kind": "COLLISION",
+        "lap": 1,
+        "at": 58995,
+        "vehicleIndices": [
+          21,
+          17
+        ],
+        "title": "Recorded contact",
+        "detail": "Contact involving the player.",
+        "severity": "warning"
+      }
+    ]
+  },
+  {
+    "at": 62265,
+    "sessionTime": 55.67167663574219,
+    "lap": 1,
+    "penalties": 2,
+    "warnings": 0,
+    "incidents": []
+  },
+  {
+    "at": 64265,
+    "sessionTime": 57.67390441894531,
+    "lap": 1,
+    "penalties": 2,
+    "warnings": 0,
+    "incidents": []
+  },
+  {
+    "at": 66269,
+    "sessionTime": 59.675655364990234,
+    "lap": 1,
+    "penalties": 2,
+    "warnings": 0,
+    "incidents": []
+  }
+]
