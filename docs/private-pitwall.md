@@ -113,10 +113,15 @@ doing so discards subsequent recordings and device changes.
   with two clients and history reads. Queue maximum was one; final event-loop
   p95 was 21.02 ms. Six timeouts occurred while browser/tests competed for host
   resources, including database request timeouts. Recovery occurred; this was
-  **not** a zero-error pass. A final run without competing local builds/tests
-  is recorded separately before rollout.
+  **not** a zero-error pass. The final run without competing local builds/tests
+  passed: 1,800.05 seconds, 108,002 input frames (59.999 Hz), 30,518 received
+  client frames, one deliberately lost ACK recovered, maximum queue one, zero
+  errors. Final event-loop p95 was 20.92 ms; the highest sampled p95 was 21.50 ms.
+  The server shut down cleanly. Artifacts are retained under ignored `work/`.
 
 Keep CPU/memory headroom on this shared host: a separate SQLite worker does not
 protect against machine-wide resource exhaustion. Local browser tests emulate
 viewports and speech callbacks; actual Android audio, wake-lock behavior and wet
 race calibration still require real-device/race acceptance.
+
+Independent [GitHub CI](https://github.com/diegodella1/f1-race-monitor/actions/runs/34274915268) also passed installation, all tests, types, build and both browser scenarios on the release code.
