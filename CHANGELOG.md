@@ -1,5 +1,25 @@
 # Changelog
 
+## 3.0.0 — 2026-09-08
+
+- Require private device pairing, secure cookies and exact-origin checks for APIs
+  and live sockets. Add revocation, request/connection limits and self-hosted fonts.
+- Reject malformed/unsupported UDP layouts, lock the telemetry source and handle
+  out-of-order frames and explicit flashbacks without false healthy readings.
+- Recover missing stream ACKs and show stale data independently of game pause.
+- Use local English speech only; retry essential failures once and expose audio
+  problems. Test/repeat share the queue and tabs coordinate ownership.
+- Add foreground Android driving mode, screen wake lock and an English interface.
+- Apply settings explicitly and validate ports before replacing the source.
+- Move persistence to a worker with transactions, prepared statements, bounded
+  queues and terminal snapshot deduplication. Add paginated history and export.
+- Add fault-injection regressions, HTTPS phone/tablet browser tests and an isolated
+  sustained-load harness. Real-device audio and wet-race calibration remain manual
+  acceptance steps; synthesized callbacks cannot prove audible output.
+
+Breaking change: HTTP-only/unpaired clients cannot read or control the dashboard.
+Run `npm run pair` on the server to enroll devices.
+
 ## 2.9.0 — 2026-09-08
 
 - Retain penalties and warnings in a dedicated radio queue, correlate PENA events

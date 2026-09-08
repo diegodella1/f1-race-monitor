@@ -33,6 +33,8 @@ export class PitwallStrategy {
   private weatherModel=new WeatherStrategy();
   private weatherPhase:WeatherPhase='UNKNOWN';
   private weatherLearning=false;
+  private thermalManage=false;
+  private thermalSince:number|null=null;
   private sessionKey='';
   private currentLap=0;
   private quality=cleanQuality();
@@ -60,7 +62,7 @@ export class PitwallStrategy {
   private decisions:DecisionLogEntry[]=[];
 
   reset(){
-    this.weatherModel.reset();this.weatherPhase='UNKNOWN';this.weatherLearning=false;
+    this.thermalManage=false;this.thermalSince=null;this.weatherModel.reset();this.weatherPhase='UNKNOWN';this.weatherLearning=false;
     this.sessionKey='';this.currentLap=0;this.quality=cleanQuality();this.snapshot={ahead:null,behind:null,aheadGap:null,behindGap:null};
     this.records=[];this.stintId=0;this.compound='—';this.tyreAge=0;this.wear=0;this.wasPitting=false;this.pitEntry=null;
     this.pitTransition=null;this.lastProjection=null;this.trendSince={ahead:0,behind:0};this.trendContext={ahead:'',behind:''};this.pitLossSamples=[];this.activeRecommendation=null;this.compoundsUsed.clear();this.stops=0;this.lastStop=null;
@@ -74,6 +76,9 @@ export class PitwallStrategy {
     this.sessionKey=sessionKey;
     if(!raceSession||!['CONNECTED','DEMO','PAUSED'].includes(state.status)){const empty=this.empty(state);return {...state,strategy:{...empty,weather:this.weatherModel.analyze(state,empty.plan,now)}};}
 
+    const temperature=Math.max(...state.player.tyreTemps);
+    const thermalChange=this.thermalManage?temperature<105:temperature>110;
+    if(thermalChange){this.thermalSince??=now;if(now-this.thermalSince>=5000){this.thermalManage=!this.thermalManage;this.thermalSince=null;}}else this.thermalSince=null;
     const rivals=this.rivals(state);
     if(!this.currentLap){this.currentLap=state.lap;this.beginStint(state);}
     if(state.lap>this.currentLap){
@@ -312,7 +317,7 @@ export class PitwallStrategy {
     if(state.flag==='RED'||state.safetyCar!=='NONE')return 'SAFETY';
     if(state.player.pit||this.wasPitting||(recommendation?.id.startsWith('strategy-box')||recommendation?.weather?.kind==='BOX'))return 'BOX';
     if(state.strategy.weather?.transition)return 'MANAGE';
-    if(structuralDamage(state)>=30||state.player.fuelRemainingLaps<.35||state.player.ers<15||Math.max(...state.player.tyreTemps)>110)return 'MANAGE';
+    if(structuralDamage(state)>=30||state.player.fuelRemainingLaps<.35||state.player.ers<15||this.thermalManage)return 'MANAGE';
     if(behind?.gap!==null&&behind?.gap!==undefined&&behind.gap<=1)return 'DEFEND';
     if(ahead?.gap!==null&&ahead?.gap!==undefined&&ahead.gap<=1.2)return 'ATTACK';
     if(this.lastStop&&state.lap<=this.lastStop.exitLap+2)return 'PUSH';
@@ -333,7 +338,7 @@ export class PitwallStrategy {
       this.record('mode-manage-'+state.lap,state.lap,now,'EMITTED',previous+' → MANAGE: weather transition');
       return this.raceMode;
     }
-    const immediate=desired==='DEFEND'||desired==='ATTACK'||(desired==='MANAGE'&&(structuralDamage(state)>=30||state.player.fuelRemainingLaps<.35||state.player.ers<15||Math.max(...state.player.tyreTemps)>110))||desired==='SAFETY'||desired==='BOX'||this.raceMode==='SAFETY'||this.raceMode==='BOX';
+    const immediate=desired==='DEFEND'||desired==='ATTACK'||(desired==='MANAGE'&&(structuralDamage(state)>=30||state.player.fuelRemainingLaps<.35||state.player.ers<15||this.thermalManage))||desired==='SAFETY'||desired==='BOX'||this.raceMode==='SAFETY'||this.raceMode==='BOX';
     if(immediate||this.raceMode==='LEARNING'||state.lap-this.modeChangedLap>=2){
       const previous=this.raceMode;this.raceMode=desired;this.modeChangedLap=state.lap;
       this.record('mode-'+desired.toLowerCase()+'-'+state.lap,state.lap,now,'EMITTED',previous+' → '+desired);

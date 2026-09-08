@@ -16,14 +16,14 @@ function setup(){
   return {s,message,queue,spoken,log,finish:()=>finish()};
 }
 
-test('weather boxes survive 30 seconds behind speech, after sanctions and warnings',()=>{
+test('weather boxes survive 30 seconds behind speech, after sanctions and before warnings',()=>{
   const {s,queue,spoken,finish}=setup();
   const controlState={...s,updatedAt:0};s.raceControl=observeControlCounters(controlState,2,1);s.context.penalties=2;s.context.warnings=1;s.engineer.control=controlMessages(s,2000);
   queue.update({id:'contact',priority:'critical',title:'Contact',evidence:'',action:'',confidence:99,createdAt:0,expiresAt:60000},s,'Contact',0);
   s.context.weatherObservedAt=35000;queue.update(null,s,'',35000);finish();
   queue.update(null,s,'',35100);assert.match(spoken[1],/penalty/i);finish();
-  queue.update(null,s,'',35200);assert.match(spoken[2],/warning/i);finish();
-  queue.update(null,s,'',35300);assert.equal(spoken[3],'Box for intermediates.');finish();
+  queue.update(null,s,'',35200);assert.equal(spoken[2],'Box for intermediates.');finish();
+  queue.update(null,s,'',35300);assert.match(spoken[3],/warning/i);finish();
   queue.update(null,s,'',35400);assert.equal(spoken.length,4);
 });
 

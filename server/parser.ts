@@ -1,3 +1,4 @@
+import { packetSupport } from './packetGate.js';
 import { observeControlCounters, observePenaltyPacket, resetRaceControl, serveControlPenalty } from './raceControl.js';
 import { initialState } from './state.js';
 import type { DriverState, RaceState, WeatherForecast } from './types.js';
@@ -17,14 +18,14 @@ export function packetEventCode(buffer:Buffer):string|null {
 }
 
 export function parsePacket(buffer:Buffer,state:RaceState):RaceState|null {
-  if(buffer.length<29)return null;
+  if(packetSupport(buffer)!=='valid')return null;
   const format=buffer.readUInt16LE(0);
   if(format<2024||format>2026)return null;
   const packetId=buffer.readUInt8(6),player=buffer.readUInt8(27),base=29,now=Date.now();
   const sessionUid=buffer.readBigUInt64LE(7).toString(),sessionTime=buffer.readFloatLE(15);
   const source=state.sessionUid&&state.sessionUid!==sessionUid?freshConnected(sessionUid,sessionTime):state;
   const packetStatus=format===2026&&source.context.category==='UNKNOWN'?'WAITING' as const:'CONNECTED' as const;
-  const next={...source,player:{...source.player,vehicleIndex:player},status:packetStatus,sessionUid,sessionTime,updatedAt:now,packetCount:source.packetCount+1};
+  const next={...source,player:{...source.player,vehicleIndex:player},status:packetStatus,sessionUid,sessionTime:Math.max(source.sessionTime,sessionTime),updatedAt:now,packetCount:source.packetCount+1};
   try {
     if(format===2026)return parse2026(buffer,next,packetId,player,base);
     if(packetId===1&&buffer.length>base+14){const paused=!!buffer.readUInt8(base+14);return {...next,status:paused?'PAUSED':'CONNECTED',weather:weatherName(buffer.readUInt8(base)),totalLaps:buffer.readUInt8(base+3),track:tracks[buffer.readInt8(base+6)]||`Track ${buffer.readInt8(base+6)}`,context:{...next.context,gamePaused:paused}};}
@@ -58,7 +59,7 @@ function parse2026(buffer:Buffer,next:RaceState,packetId:number,player:number,ba
   if(packetId===11&&buffer.length===1460){const car=buffer.readUInt8(base),bestLapNumber=buffer.readUInt8(base+3);if(!bestLapNumber)return next;const o=base+7+(bestLapNumber-1)*14;if(o+13>=buffer.length)return next;const best=formatMs(buffer.readUInt32LE(o)),drivers=next.drivers.map((d,i)=>(d.vehicleIndex??i)===car?{...d,bestLap:best}:d);return {...next,drivers,player:car===player?{...next.player,bestLap:best}:next.player};}
   if(packetId===3&&buffer.length>=33){
     const code=packetEventCode(buffer);
-    if(code==='FLBK')return {...next,raceControl:resetRaceControl(next)};
+    if(code==='FLBK')return {...next,sessionTime:Math.max(0,buffer.readFloatLE(37)),raceControl:resetRaceControl(next)};
     if(code==='DTSV'||code==='SGSV'){
       if(buffer.length<34)throw new RangeError('Truncated penalty service payload');
       const key=`${code}:${buffer.readUInt32LE(19)}:${buffer.readUInt32LE(23)}:${next.sessionTime}`;

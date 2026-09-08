@@ -7,7 +7,7 @@ import { RaceEngineer } from './intelligence.js';
 import { SessionStore } from './db.js';
 
 function packet(id:number,size:number,time=10){
-  const b=Buffer.alloc(size);b.writeUInt16LE(2026);b.writeUInt8(id,6);b.writeBigUInt64LE(123n,7);b.writeFloatLE(time,15);b.writeUInt32LE(time*100,19);b.writeUInt8(1,27);return b;
+  const b=Buffer.alloc(size);b.writeUInt16LE(2026);b.writeUInt8(1,5);b.writeUInt8(id,6);b.writeBigUInt64LE(123n,7);b.writeFloatLE(time,15);b.writeUInt32LE(time*100,19);b.writeUInt8(1,27);return b;
 }
 function penalty(type=4,seconds=2,time=10,car=1){
   const b=packet(3,45,time);b.write('PENA',29);b.set([type,17,car,255,seconds,1,0],33);return b;

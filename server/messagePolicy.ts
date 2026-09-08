@@ -1,9 +1,10 @@
 import type { EngineerMessage, RaceState } from './types.js';
 import { weatherDataAge, WEATHER_LIMITS } from './weather.js';
 import { tyreFamily } from './weatherEvidence.js';
-type Context=Pick<RaceState,'raceControl'|'strategy'|'player'|'context'|'lap'|'sessionUid'|'sessionLinkId'|'sessionType'|'telemetry'|'updatedAt'|'status'> & {safetyCar:string;flag:string;drivers:{position:number;name:string;vehicleIndex?:number}[]};
+type Context=Pick<RaceState,'raceControl'|'strategy'|'player'|'context'|'lap'|'sessionUid'|'sessionLinkId'|'sessionType'|'telemetry'|'updatedAt'|'status'|'transport'> & {safetyCar:string;flag:string;drivers:{position:number;name:string;vehicleIndex?:number}[]};
 
 export function messageIsCurrent(message:EngineerMessage,state:Context,now:number){
+  if(state.transport&&(!state.transport.connected||state.transport.stale))return false;
   if(message.expiresAt<=now||(message.validUntilLap??state.lap)<state.lap)return false;
   if(message.sessionKey&&message.sessionKey!==`${state.sessionUid}:${state.sessionLinkId}:${state.sessionType}`)return false;
   if(message.weather){

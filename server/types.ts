@@ -26,7 +26,10 @@ export interface StrategyState {weather?:WeatherAssessment; status:'LEARNING'|'R
 export interface LapTracePoint { distance:number; speed:number; throttle:number; brake:number }
 export interface LapInsight { lap:number; turn:number; distance:number; title:string; evidence:string; action:string; score:number }
 export interface LapAnalysis { currentLap:number; referenceLap:number|null; referenceLapTime:string; current:LapTracePoint[]; reference:LapTracePoint[]; corners:number[]; insights:LapInsight[]; quality:{invalid:boolean;pit:boolean;unsafe:boolean} }
-export interface RaceState {raceControl?:RaceControlState;
+export interface RaceState {
+  streamVersion?:number;
+  serverTime?:number;
+  transport?:{connected:boolean;stale:boolean;lastReceivedAt:number;clockOffsetMs?:number};raceControl?:RaceControlState;
   status:ConnectionStatus; sessionUid:string; sessionLinkId:number; sessionTime:number; sessionType:string; track:string; weather:string; lap:number; totalLaps:number; safetyCar:'NONE'|'FULL'|'VSC'; flag:'GREEN'|'YELLOW'|'RED'|'CHEQUERED';
   context:{category:'PRACTICE'|'QUALIFYING'|'SPRINT'|'RACE'|'TIME_TRIAL'|'UNKNOWN';lifecycle:RaceLifecycle;timeLeft:number;trackLength:number;trackTemp:number;airTemp:number;gamePaused:boolean;weatherObservedAt?:number;weatherSessionTime?:number;forecastAccuracy?:'PERFECT'|'APPROXIMATE'|'UNKNOWN';weatherForecast:WeatherForecast[];pitWindowIdeal:number;pitWindowLatest:number;pitRejoinPosition:number;currentLapTime:string;sector1:string;sector2:string;lapInvalid:boolean;penalties:number;warnings:number;gridPosition:number;tyreWear:number[];damage:{frontWing:number;rearWing:number;floor:number;diffuser:number;sidepod:number;gearbox:number;engine:number;tyres:number;brakes:number};incidents:RaceIncident[]};
   player:{vehicleIndex?:number;position:number;driver:string;team:string;speed:number;gear:number;rpm:number;throttle:number;brake:number;steer:number;lapDistance:number;drs:boolean;fuel:number;fuelRemainingLaps:number;ers:number;tyre:string;tyreAge:number;tyreTemps:number[];brakeTemps:number[];frontWing:number;damage:number;pit:boolean;driverStatus:number;lastLap:string;bestLap:string};

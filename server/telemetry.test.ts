@@ -17,7 +17,7 @@ test('telemetry quality exposes missing and invalid packet evidence',()=>{
   const monitor=new TelemetryMonitor(),state=connected(),now=10000;
   monitor.observe(packet(6),false,'console',now);
   const quality=monitor.quality(state,now+3000);
-  assert.equal(quality.confidence,'LOW');assert.ok(quality.missing.includes(2));assert.ok(quality.invalidPackets>0);assert.ok(quality.warnings.some(warning=>warning.includes('invalid')));
+  assert.equal(quality.confidence,'NONE');assert.ok(quality.missing.includes(2));assert.ok(quality.invalidPackets>0);assert.ok(quality.warnings.some(warning=>warning.includes('invalid')));
 });
 
 test('a paused game retains the last reliable packet health',()=>{

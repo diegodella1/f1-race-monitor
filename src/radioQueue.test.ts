@@ -134,5 +134,5 @@ test('a stalled speech engine cannot block the queue indefinitely',()=>{
   const events:string[]=[];let cancelled=false;
   const queue=new RadioQueue({speak:()=>{},cancel:()=>{cancelled=true;},log:(_,status,reason)=>events.push(status+':'+reason)});
   const {s,m}=setup();queue.update(m,s,'Push',1000);queue.update(null,s,'',11001);
-  assert.ok(cancelled);assert.equal(queue.status,'READY');assert.ok(events.some(x=>x.includes('ERROR:Speech did not start')));
+  assert.ok(cancelled);assert.equal(queue.status,'ATTENTION');assert.ok(events.some(x=>x.includes('ERROR:Speech did not start')));
 });

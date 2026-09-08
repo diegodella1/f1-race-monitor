@@ -1,0 +1,43 @@
+import {test,expect} from '@playwright/test';
+import {readFileSync} from 'node:fs';
+import {pathToFileURL} from 'node:url';
+import path from 'node:path';
+
+test('pairing, driving layout, deferred settings and English history',async({page,context},info)=>{
+  await context.addInitScript(()=>{
+    const testWindow=window as typeof window&{testLocalVoice:boolean;testSpoken:string[]};
+    testWindow.testLocalVoice=false;testWindow.testSpoken=[];
+    const speech=new EventTarget();
+    Object.assign(speech,{getVoices:()=>[{voiceURI:'test-en',name:'Test English',lang:'en-US',localService:testWindow.testLocalVoice,default:true}],cancel:()=>{},speak:(utterance:SpeechSynthesisUtterance)=>{testWindow.testSpoken.push(utterance.text);setTimeout(()=>{utterance.onstart?.(new Event('start') as SpeechSynthesisEvent);utterance.onend?.(new Event('end') as SpeechSynthesisEvent);},20);}});
+    Object.defineProperty(window,'speechSynthesis',{value:speech});
+    Object.defineProperty(window,'SpeechSynthesisUtterance',{value:class {text:string;constructor(text:string){this.text=text;}}});
+    Object.defineProperty(window,'AudioContext',{value:undefined});
+    Object.defineProperty(window,'webkitAudioContext',{value:undefined});
+  });
+  const setup=JSON.parse(readFileSync('work/e2e-context.json','utf8'));
+  const {DeviceAuth}=await import(pathToFileURL(path.join(setup.build,'dist-server/auth.js')).href);
+  const auth=new DeviceAuth(path.join(setup.directory,'data/devices.sqlite')),token=auth.pair();auth.close();
+  const anonymous=await context.request.get('/api/state');expect(anonymous.status()).toBe(401);
+  await page.goto('/#pair='+token,{waitUntil:'domcontentloaded'});await page.getByLabel('Device name').fill(info.project.name);
+  await page.getByRole('button',{name:'Pair this device'}).click();await expect(page.getByRole('button',{name:'Driving mode',exact:true})).toBeVisible();
+  const settings=await context.request.put('/api/settings',{headers:{origin:setup.origin},data:{udpPort:20999,demoMode:true,autoSave:true,demoSession:'RACE'}});expect(settings.status()).toBe(200);
+  await page.getByRole('button',{name:'Driving mode',exact:true}).click();await expect(page.getByRole('heading',{name:'Rivals'})).toBeVisible();
+  await expect(page.getByText('LIVE DATA UNAVAILABLE',{exact:true})).toHaveCount(0);
+  await expect(page.getByText('RECONNECTING',{exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:'Test local voice'}).click();await expect(page.getByRole('status').filter({hasText:'NO LOCAL VOICE'})).toBeVisible();
+  await page.evaluate(()=>{(window as typeof window&{testLocalVoice:boolean}).testLocalVoice=true;});
+  await page.getByRole('button',{name:'Test local voice'}).click();
+  await expect.poll(()=>page.evaluate(()=>(window as typeof window&{testSpoken:string[]}).testSpoken.some(text=>text.includes('Local English voice selected')))).toBe(true);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:`work/playwright-results/${info.project.name}-driving.png`,fullPage:true});
+  await page.getByRole('button',{name:'Exit driving mode'}).click();await page.getByRole('link',{name:'Settings',exact:true}).click();
+  let writes=0;page.on('request',r=>{if(r.method()==='PUT'&&r.url().endsWith('/api/settings'))writes++;});
+  await page.getByLabel('UDP PORT').fill('20998');expect(writes).toBe(0);
+  await page.getByRole('button',{name:'Apply settings'}).click();await expect(page.getByText('SAVED',{exact:true})).toBeVisible();expect(writes).toBe(1);
+  await page.getByRole('link',{name:'Analysis',exact:true}).click();await expect(page.getByRole('heading',{name:'Radio history'})).toBeVisible();
+  await expect(page.getByText('Historial de radio')).toHaveCount(0);
+  const other=await context.newPage();await other.goto('/',{waitUntil:'domcontentloaded'});
+  await other.evaluate(()=>{(window as typeof window&{testLocalVoice:boolean}).testLocalVoice=true;});
+  await other.getByRole('button',{name:'Driving mode',exact:true}).click();await other.getByRole('button',{name:'Test local voice'}).click();
+  await expect(other.getByRole('status').filter({hasText:'IN USE'})).toBeVisible();await other.close();
+});

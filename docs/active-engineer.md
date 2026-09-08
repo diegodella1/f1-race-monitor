@@ -28,7 +28,7 @@ arrive later. Unknown codes receive factual generic copy. The counters cannot
 establish the original infringement or the threshold for another sanction.
 
 The browser retains these notices beyond the ordinary 30-second event lifetime.
-Critical safety takes precedence, followed by penalties, warnings and ordinary
+Critical safety takes precedence, followed by penalties, actionable weather stops, warnings and ordinary
 calls. Control notices bypass the ordinary lap budget and wait for speech already
 in progress. A safety interruption requeues the notice. Pausing retains it;
 session changes, flashbacks and reversals invalidate it. Drive-through and stop-go
@@ -59,10 +59,13 @@ Historical sessions predating this release have no browser delivery events.
 `POST /api/radio-events` accepts `{events: [...]}` with 1–50 validated events.
 Each contains `eventId`, `deviceId`, `sessionUid`, `sessionLinkId`, `sessionType`,
 `messageId`, `status`, `text`, `reason`, `category`, `lap` and `clientAt`.
-The response contains `accepted` and `acknowledged` event IDs. Duplicate
-`deviceId/eventId` pairs are idempotent; unknown session identities are not saved.
+The response includes a result per event: `accepted`, `retry` or `rejected`, plus
+compatible acknowledgement IDs. Device identity comes from the authenticated
+cookie, not the payload. Duplicate device/event pairs are idempotent; unknown
+sessions are permanently rejected so they cannot block later deliveries.
 The browser retains unacknowledged events in a bounded local outbox (2,000 events)
-and retries ten events every two seconds. Session auto-save must be enabled to
+and sends batches of ten with a five-second timeout and exponential retry delay
+(up to thirty seconds). Retryable events rotate so they cannot block newer ones. Session auto-save must be enabled to
 retain session-linked radio history.
 
 `GET /api/sessions/:id/radio` supports `limit` (1–200), `offset`, `device`,
@@ -119,7 +122,7 @@ Transitions suspend old pace targets, corner references and ordinary undercut,
 overcut and cover advice. Rain alone does not satisfy the dry-compound rule;
 actual use of wet tyres does.
 
-Safety calls precede penalties, warnings, actionable weather and ordinary calls.
+Safety calls precede penalties, actionable weather stops, warnings and ordinary calls.
 Descriptive weather notices expire after sixty seconds. A box notice stays queued
 while justified and is revalidated before speech; changing tyres, stale data,
 pause, flashback, session changes or finishing invalidate it. Emission and
@@ -147,9 +150,22 @@ is bounded at 45 seconds from submission.
 
 Modern clients negotiate `raceStreamReady` and acknowledge each `raceState` frame.
 The server sends at most ten frames per second with one in flight per client;
-intermediate states are replaced, not buffered. Older clients receive throttled
-volatile updates. UDP parsing, engine analysis and persistence retain their normal
-cadence. Reload existing browser tabs to enable acknowledged streaming.
+intermediate states are replaced, not buffered. A missing acknowledgement resets the stream after two seconds. Version 3 clients
+use authenticated WebSocket transport and receive a heartbeat at least once per
+second; old unauthenticated clients must reload and pair. Large analysis traces
+load separately on the Analysis page. SQLite writes run in a bounded worker queue,
+with two-second sampling and immediate decision/lifecycle saves. Reload existing browser tabs to enable acknowledged streaming.
 
 See [Brazil session review](brazil-session-5-review.md) for the measured baseline
 and remaining strategy improvements.
+
+## Version 3 delivery guarantees
+
+Only browser voices marked local and English are eligible. Radio activation holds
+an exclusive browser tab lock. Essential speech failures retry once if still
+current; a second failure displays ATTENTION. Test and repeat use the same queue
+and retain pending essential notices. Disconnected or stale clients suspend
+advice until fresh data returns. Foreground driving mode requests a screen wake
+lock and shows whether the browser granted it. Browser callbacks are not an
+audibility measurement. See [private pitwall](private-pitwall.md) for pairing and
+operational limits.

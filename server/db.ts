@@ -6,9 +6,11 @@ import type { RaceState, Settings } from './types.js';
 
 export class SessionStore {
   private db:DatabaseSync;
+  private statements=new Map<string,ReturnType<DatabaseSync['prepare']>>();
   private sessionId:number|null=null;
   private sessionKey='';
   private lastSave=0;
+  private terminalSaved=false;
   private savedDecisionKeys=new Set<string>();
 
   constructor(path:string,private readOnly=false){
@@ -39,51 +41,62 @@ export class SessionStore {
     this.db.exec(`UPDATE sessions SET ended_at=COALESCE((SELECT MAX(recorded_at) FROM snapshots WHERE session_id=sessions.id),started_at) WHERE ended_at IS NULL; UPDATE sessions SET mode=COALESCE((SELECT json_extract(state_json,'$.sessionType') FROM snapshots WHERE session_id=sessions.id AND json_extract(state_json,'$.sessionType')!='Unknown' ORDER BY recorded_at DESC LIMIT 1),mode) WHERE mode='Unknown'; PRAGMA optimize;`);
   }
 
+  private prepare(sql:string){let statement=this.statements.get(sql);if(!statement){statement=this.db.prepare(sql);this.statements.set(sql,statement);}return statement;}
+  private rollback(){try{this.db.exec('ROLLBACK');}catch{/* SQLITE_FULL can already have rolled back the transaction. */}}
+
   private addColumn(table:string,column:string,declaration:string){
-    const columns=this.db.prepare(`PRAGMA table_info(${table})`).all() as {name:string}[];
+    const columns=this.prepare(`PRAGMA table_info(${table})`).all() as {name:string}[];
     if(!columns.some(x=>x.name===column))this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${declaration}`);
   }
 
   private key(state:RaceState){return `${state.sessionUid}:${state.sessionLinkId}:${state.sessionType}`;}
 
   private start(state:RaceState){
-    const result=this.db.prepare('INSERT INTO sessions(started_at,track,mode,session_uid,session_link_id) VALUES(?,?,?,?,?)').run(state.updatedAt,state.track,state.sessionType,state.sessionUid,state.sessionLinkId);
+    const result=this.prepare('INSERT INTO sessions(started_at,track,mode,session_uid,session_link_id) VALUES(?,?,?,?,?)').run(state.updatedAt,state.track,state.sessionType,state.sessionUid,state.sessionLinkId);
     this.sessionId=Number(result.lastInsertRowid);
     this.sessionKey=this.key(state);
-    this.lastSave=0;
+    this.lastSave=0;this.terminalSaved=false;
     this.savedDecisionKeys.clear();
   }
 
   save(state:RaceState){
+    const previous={sessionId:this.sessionId,sessionKey:this.sessionKey,lastSave:this.lastSave,terminalSaved:this.terminalSaved};
+    this.db.exec('BEGIN');
+    try{this.saveState(state);this.db.exec('COMMIT');}catch(error){this.rollback();Object.assign(this,previous);this.savedDecisionKeys.clear();throw error;}
+  }
+  private saveState(state:RaceState){
     if(state.context.category==='UNKNOWN'||!state.sessionUid||!state.sessionLinkId||state.track.startsWith('Waiting'))return;
     const key=this.key(state);
     if(this.sessionId&&this.sessionKey!==key)this.stop(state.updatedAt);
     if(!this.sessionId)this.start(state);
-    const decisionInsert=this.db.prepare('INSERT OR IGNORE INTO decision_events(session_id,recorded_at,lap,source,event_id,status,reason,score,confidence,priority,title,category) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)');
+    const decisionInsert=this.prepare('INSERT OR IGNORE INTO decision_events(session_id,recorded_at,lap,source,event_id,status,reason,score,confidence,priority,title,category) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)');
     for(const [source,entries] of [['strategy',state.strategy.decisions],['engineer',state.engineer.log]] as const)for(const entry of entries){
       const decisionKey=source+':'+entry.id+':'+entry.lap+':'+entry.status;
       if(!this.savedDecisionKeys.has(decisionKey)){decisionInsert.run(this.sessionId,entry.at,entry.lap,source,entry.id,entry.status,entry.reason,entry.score??null,entry.confidence??null,entry.priority??null,entry.title??null,entry.category??null);this.savedDecisionKeys.add(decisionKey);}
     }
     const terminal=['FINISHED','RETIRED'].includes(state.context.lifecycle);
+    if(terminal&&this.terminalSaved)return;
     if(!terminal&&state.updatedAt-this.lastSave<2000)return;
+    this.terminalSaved=terminal;
+    if(terminal)this.prepare('UPDATE sessions SET ended_at=? WHERE id=?').run(state.updatedAt,this.sessionId);
     this.lastSave=state.updatedAt;
-    this.db.prepare('INSERT INTO snapshots(session_id,recorded_at,lap,state_json) VALUES(?,?,?,?)').run(this.sessionId,state.updatedAt,state.lap,JSON.stringify(state));
-    this.db.prepare('UPDATE sessions SET track=?,mode=?,laps=?,packets=? WHERE id=?').run(state.track,state.sessionType,state.lap,state.packetCount,this.sessionId);
+    this.prepare('INSERT INTO snapshots(session_id,recorded_at,lap,state_json) VALUES(?,?,?,?)').run(this.sessionId,state.updatedAt,state.lap,JSON.stringify(state));
+    this.prepare('UPDATE sessions SET track=?,mode=?,laps=?,packets=? WHERE id=?').run(state.track,state.sessionType,state.lap,state.packetCount,this.sessionId);
   }
 
   stop(at=Date.now()){
-    if(this.sessionId)this.db.prepare('UPDATE sessions SET ended_at=? WHERE id=?').run(at,this.sessionId);
+    if(this.sessionId)this.prepare('UPDATE sessions SET ended_at=? WHERE id=?').run(at,this.sessionId);
     this.sessionId=null;
     this.sessionKey='';
-    this.lastSave=0;
+    this.lastSave=0;this.terminalSaved=false;
     this.savedDecisionKeys.clear();
   }
 
   close(){if(!this.readOnly)this.stop();this.db.close();}
 
   saveRadioEvents(events:RadioEvent[]){
-    const session=this.db.prepare('SELECT id FROM sessions WHERE session_uid=? AND session_link_id=? AND mode=? ORDER BY id DESC LIMIT 1');
-    const insert=this.db.prepare('INSERT OR IGNORE INTO radio_events(session_id,event_id,device_id,message_id,status,text,reason,category,lap,client_at,server_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)');
+    const session=this.prepare('SELECT id FROM sessions WHERE session_uid=? AND session_link_id=? AND mode=? ORDER BY id DESC LIMIT 1');
+    const insert=this.prepare('INSERT OR IGNORE INTO radio_events(session_id,event_id,device_id,message_id,status,text,reason,category,lap,client_at,server_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)');
     let accepted=0;
     this.db.exec('BEGIN');
     try{
@@ -93,11 +106,11 @@ export class SessionStore {
         accepted+=Number(insert.run(row.id,event.eventId,event.deviceId,event.messageId,event.status,event.text,event.reason,event.category,event.lap,event.clientAt,Date.now()).changes);
       }
       this.db.exec('COMMIT');return accepted;
-    }catch(error){this.db.exec('ROLLBACK');throw error;}
+    }catch(error){this.rollback();throw error;}
   }
 
   acknowledgedRadioEvents(events:RadioEvent[]){
-    const query=this.db.prepare('SELECT 1 FROM radio_events WHERE device_id=? AND event_id=?');
+    const query=this.prepare('SELECT 1 FROM radio_events WHERE device_id=? AND event_id=?');
     return events.filter(event=>query.get(event.deviceId,event.eventId)).map(event=>event.eventId);
   }
 
@@ -105,20 +118,20 @@ export class SessionStore {
     const {limit=50,offset=0,device='',status='',category='',lap=-1}=query;
     const params=[sessionId,device,device,status,status,category,category,lap,lap];
     const where="session_id=? AND (?='' OR device_id=?) AND (?='' OR status=?) AND (?='' OR category=?) AND (?<0 OR lap=?)";
-    const total=this.db.prepare('SELECT COUNT(*) AS count FROM radio_events WHERE '+where).get(...params) as {count:number};
-    const events=this.db.prepare('SELECT id,event_id AS eventId,device_id AS deviceId,message_id AS messageId,status,text,reason,category,lap,client_at AS clientAt,server_at AS serverAt FROM radio_events WHERE '+where+' ORDER BY id DESC LIMIT ? OFFSET ?').all(...params,Math.max(1,Math.min(200,limit)),Math.max(0,offset));
-    const devices=this.db.prepare('SELECT DISTINCT device_id AS deviceId FROM radio_events WHERE session_id=? ORDER BY device_id').all(sessionId);
+    const total=this.prepare('SELECT COUNT(*) AS count FROM radio_events WHERE '+where).get(...params) as {count:number};
+    const events=this.prepare('SELECT id,event_id AS eventId,device_id AS deviceId,message_id AS messageId,status,text,reason,category,lap,client_at AS clientAt,server_at AS serverAt FROM radio_events WHERE '+where+' ORDER BY id DESC LIMIT ? OFFSET ?').all(...params,Math.max(1,Math.min(200,limit)),Math.max(0,offset));
+    const devices=this.prepare('SELECT DISTINCT device_id AS deviceId FROM radio_events WHERE session_id=? ORDER BY device_id').all(sessionId);
     return {events,total:total.count,devices};
   }
 
   radioReport(sessionId:number){
-    if(!this.db.prepare("SELECT 1 FROM sqlite_master WHERE name='radio_events'").get())return {counts:[],silences:[],latencies:[]};
-    const counts=this.db.prepare('SELECT device_id AS deviceId,status,reason,COUNT(*) AS count FROM radio_events WHERE session_id=? GROUP BY device_id,status,reason').all(sessionId);
-    const silences=this.db.prepare(`WITH deliveries AS (
+    if(!this.prepare("SELECT 1 FROM sqlite_master WHERE name='radio_events'").get())return {counts:[],silences:[],latencies:[]};
+    const counts=this.prepare('SELECT device_id AS deviceId,status,reason,COUNT(*) AS count FROM radio_events WHERE session_id=? GROUP BY device_id,status,reason').all(sessionId);
+    const silences=this.prepare(`WITH deliveries AS (
       SELECT device_id,client_at,LAG(client_at) OVER(PARTITION BY device_id ORDER BY client_at) AS previous
       FROM radio_events WHERE session_id=? AND status='STARTED'
     ) SELECT device_id AS deviceId,previous AS fromAt,client_at AS toAt,client_at-previous AS durationMs FROM deliveries WHERE client_at-previous>=45000`).all(sessionId);
-    const times=this.db.prepare(`SELECT device_id AS deviceId,message_id AS messageId,
+    const times=this.prepare(`SELECT device_id AS deviceId,message_id AS messageId,
       MIN(CASE WHEN status='SELECTED' THEN client_at END) AS selectedAt,
       MIN(CASE WHEN status='SUBMITTED' THEN client_at END) AS submittedAt,
       MIN(CASE WHEN status='STARTED' THEN client_at END) AS startedAt
@@ -130,16 +143,28 @@ export class SessionStore {
     return {counts,silences,latencies};
   }
 
-  list(){return this.db.prepare('SELECT id,started_at AS startedAt,ended_at AS endedAt,track,mode,laps,packets FROM sessions ORDER BY started_at DESC LIMIT 20').all();}
-  decisions(sessionId:number){return this.db.prepare('SELECT recorded_at AS recordedAt,lap,source,event_id AS eventId,status,reason,score,confidence,priority,title,category FROM decision_events WHERE session_id=? ORDER BY recorded_at').all(sessionId);}
-  replay(sessionId:number,limit=2500){const rows=this.db.prepare('SELECT recorded_at AS recordedAt,lap,state_json AS stateJson FROM snapshots WHERE session_id=? ORDER BY recorded_at LIMIT ?').all(sessionId,Math.max(1,Math.min(10000,limit))) as {recordedAt:number;lap:number;stateJson:string}[];return rows.map(row=>({recordedAt:row.recordedAt,lap:row.lap,state:JSON.parse(row.stateJson) as RaceState}));}
+  list(){return this.prepare('SELECT id,started_at AS startedAt,ended_at AS endedAt,track,mode,laps,packets FROM sessions ORDER BY started_at DESC LIMIT 20').all();}
+  decisions(sessionId:number,limit=200,offset=0,newestFirst=false){return this.prepare('SELECT recorded_at AS recordedAt,lap,source,event_id AS eventId,status,reason,score,confidence,priority,title,category FROM decision_events WHERE session_id=? ORDER BY recorded_at '+(newestFirst?'DESC,id DESC':'ASC,id ASC')+' LIMIT ? OFFSET ?').all(sessionId,Math.max(1,Math.min(1000,limit)),Math.max(0,offset));}
+  replay(sessionId:number,limit=2500,offset=0){const rows=this.prepare('SELECT recorded_at AS recordedAt,lap,state_json AS stateJson FROM snapshots WHERE session_id=? ORDER BY recorded_at LIMIT ? OFFSET ?').all(sessionId,Math.max(1,Math.min(10000,limit)),Math.max(0,offset)) as {recordedAt:number;lap:number;stateJson:string}[];return rows.map(row=>({recordedAt:row.recordedAt,lap:row.lap,state:JSON.parse(row.stateJson) as RaceState}));}
   report(sessionId:number){
-    const session=this.db.prepare('SELECT id,started_at AS startedAt,ended_at AS endedAt,track,mode,laps,packets FROM sessions WHERE id=?').get(sessionId);
+    const session=this.prepare('SELECT id,started_at AS startedAt,ended_at AS endedAt,track,mode,laps,packets FROM sessions WHERE id=?').get(sessionId);
     if(!session)return null;
-    const snapshots=this.db.prepare(`SELECT COUNT(*) AS frames,ROUND(AVG(CAST(json_extract(state_json,'$.telemetry.score') AS REAL)),1) AS averageTelemetryScore,MIN(CAST(json_extract(state_json,'$.telemetry.score') AS INTEGER)) AS minimumTelemetryScore FROM snapshots WHERE session_id=?`).get(sessionId);
-    const decisions=this.db.prepare('SELECT source,status,COUNT(*) AS count FROM decision_events WHERE session_id=? GROUP BY source,status').all(sessionId) as {source:string;status:string;count:number}[];
+    const snapshots=this.prepare(`SELECT COUNT(*) AS frames,ROUND(AVG(CAST(json_extract(state_json,'$.telemetry.score') AS REAL)),1) AS averageTelemetryScore,MIN(CAST(json_extract(state_json,'$.telemetry.score') AS INTEGER)) AS minimumTelemetryScore FROM snapshots WHERE session_id=?`).get(sessionId);
+    const decisions=this.prepare('SELECT source,status,COUNT(*) AS count FROM decision_events WHERE session_id=? GROUP BY source,status').all(sessionId) as {source:string;status:string;count:number}[];
     return {session,snapshots,radio:this.radioReport(sessionId),decisions:Object.fromEntries(decisions.map(row=>[row.source+':'+row.status,row.count]))};
   }
-  loadSettings(defaults:Settings){const rows=this.db.prepare('SELECT key,value FROM settings').all() as {key:string,value:string}[];const saved=Object.fromEntries(rows.map(r=>[r.key,JSON.parse(r.value)]));return {...defaults,...saved} as Settings;}
-  saveSettings(settings:Settings){const statement=this.db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value');for(const [key,value] of Object.entries(settings))statement.run(key,JSON.stringify(value));}
+
+  radioResults(events:RadioEvent[]){
+    const acknowledged=new Set(this.acknowledgedRadioEvents(events));
+    const exists=this.prepare('SELECT 1 FROM sessions WHERE session_uid=? AND session_link_id=? AND mode=?');
+    return events.map(event=>({eventId:event.eventId,status:acknowledged.has(event.eventId)?'accepted':exists.get(event.sessionUid,event.sessionLinkId,event.sessionType)?'retry':'rejected',reason:acknowledged.has(event.eventId)?'':'Session unavailable'}));
+  }
+  deleteSession(id:number){
+    if(id===this.sessionId)throw Error('Cannot delete an active session');
+    this.db.exec('BEGIN');
+    try{for(const table of ['radio_events','decision_events','snapshots'])this.prepare(`DELETE FROM ${table} WHERE session_id=?`).run(id);this.prepare('DELETE FROM sessions WHERE id=?').run(id);this.db.exec('COMMIT');}catch(error){this.rollback();throw error;}
+  }
+
+  loadSettings(defaults:Settings){const rows=this.prepare('SELECT key,value FROM settings').all() as {key:string,value:string}[];const saved=Object.fromEntries(rows.map(r=>[r.key,JSON.parse(r.value)]));return {...defaults,...saved} as Settings;}
+  saveSettings(settings:Settings){const statement=this.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value');for(const [key,value] of Object.entries(settings))statement.run(key,JSON.stringify(value));}
 }

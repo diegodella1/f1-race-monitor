@@ -16,9 +16,9 @@ export class TelemetryMonitor {
   reset(){this.packets.clear();this.arrivals=[];this.lastPacketAt=0;this.validPackets=0;this.invalidPackets=0;this.source=null;}
 
   observe(buffer:Buffer,valid:boolean,source:string,now=Date.now()){
-    this.source=source;this.lastPacketAt=now;this.arrivals.push(now);this.arrivals=this.arrivals.filter(at=>now-at<=5000);
+    if(valid){this.source=source;this.lastPacketAt=now;}this.arrivals.push(now);this.arrivals=this.arrivals.filter(at=>now-at<=5000);
     if(valid)this.validPackets++;else this.invalidPackets++;
-    if(buffer.length>6){const id=buffer.readUInt8(6),old=this.packets.get(id);this.packets.set(id,{count:(old?.count??0)+1,lastSeen:now});}
+    if(valid&&buffer.length>6){const id=buffer.readUInt8(6),old=this.packets.get(id);this.packets.set(id,{count:(old?.count??0)+1,lastSeen:now});}
   }
 
   quality(state:RaceState,now=Date.now()):TelemetryQuality {

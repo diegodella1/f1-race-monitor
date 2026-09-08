@@ -1,7 +1,7 @@
 {
   "name": "f1-race-monitor",
   "private": true,
-  "version": "2.9.0",
+  "version": "3.0.0",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k -n API,WEB -c yellow,cyan \"npm:dev:server\" \"npm:dev:web\"",
@@ -10,22 +10,28 @@
     "build": "tsc -p server/tsconfig.json && vite build",
     "start": "node dist-server/index.js",
     "check": "tsc --noEmit && tsc -p server/tsconfig.json --noEmit",
-    "test": "tsx --test server/*.test.ts src/*.test.ts",
-    "replay": "tsx server/replay.ts"
+    "test": "tsx --test --test-concurrency=2 server/*.test.ts src/*.test.ts",
+    "replay": "tsx server/replay.ts",
+    "pair": "node dist-server/pair-device.js",
+    "e2e": "playwright test"
   },
   "dependencies": {
+    "@fontsource/barlow-condensed": "^5.3.0",
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
     "cors": "^2.8.5",
     "express": "^5.1.0",
-    "qrcode": "^1.5.4",
-    "socket.io": "^4.8.1",
-    "socket.io-client": "^4.8.1",
-    "zod": "^3.25.67",
     "lucide-react": "^0.468.0",
+    "qrcode": "^1.5.4",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "react-router-dom": "^7.6.2"
+    "react-router-dom": "^7.6.2",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
+    "zod": "^3.25.67"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.3",
     "@types/node": "^22.15.32",

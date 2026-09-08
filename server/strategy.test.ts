@@ -16,6 +16,17 @@ function race(lap:number,aheadGap:number,behindGap:number,lastLap='—',wear=30)
   return s;
 }
 
+test('thermal management requires sustained heat and a cooler recovery threshold',()=>{
+  const model=new PitwallStrategy(),state=race(3,.8,2);state.player.tyreTemps=[100,100,100,100];
+  assert.equal(model.analyze(state,0).strategy.raceMode,'ATTACK');
+  state.player.tyreTemps=[111,111,111,111];assert.equal(model.analyze(state,1000).strategy.raceMode,'ATTACK');
+  assert.equal(model.analyze(state,5999).strategy.raceMode,'ATTACK');
+  assert.equal(model.analyze(state,6000).strategy.raceMode,'MANAGE');
+  state.player.tyreTemps=[107,107,107,107];assert.equal(model.analyze(state,20000).strategy.raceMode,'MANAGE');
+  state.player.tyreTemps=[104,104,104,104];assert.equal(model.analyze(state,21000).strategy.raceMode,'MANAGE');
+  assert.equal(model.analyze(state,26000).strategy.raceMode,'ATTACK');
+});
+
 test('learns multi-lap rival direction and stint degradation from clean laps',()=>{
   const model=new PitwallStrategy();
   model.analyze(race(1,2,1.2));

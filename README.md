@@ -19,7 +19,7 @@
 
 F1 Race Monitor turns the UDP telemetry already produced by F1 25 into a compact pitwall. It follows the cars around you, estimates gap trends and pit outcomes, tracks tyres and damage, and speaks only the message that matters next.
 
-No account or API key required. Sessions stay on the machine running the server; cloud hosting is optional.
+No third-party account or paid API key required. Pair each device using a one-time link. Sessions stay on the machine running the server; cloud hosting is optional.
 
 Live deployment: [f12025.diegodella.ar](https://f12025.diegodella.ar). See the [deployment runbook](deploy/README.md) and [release history](CHANGELOG.md).
 
@@ -34,14 +34,14 @@ The default HUD tells you what is happening. A race engineer should help you dec
 - **Real car state:** wing, floor, sidepod, gearbox, engine, temperatures and tyre wear.
 - **Every session type:** tailored views for practice, qualifying and race.
 
-## Current release: V2.9 — Race Control and Weather Strategy
+## Current release: V3.0 — Private and Resilient Pitwall
 
 | Area | What you get |
 | --- | --- |
 | Pitwall | Race mode, priority action, target lap, rivals and compact trend history |
 | Timing | Position, interval, gap, lap time, sectors, compound and team identity |
 | Strategy | Stint degradation, pit-loss estimate, rejoin range and next-lap box calls |
-| Race radio | English-only browser speech, rotating concise phrases and local voice preference |
+| Race radio | English-only browser speech, rotating concise phrases and local English voices only |
 | Analysis | Per-lap traces, driving summaries and filterable radio delivery history |
 | Reliability | Pause tolerance, WAITING/CONNECTED state and persisted session decisions |
 | Telemetry trust | Live health score, packet freshness and confidence-aware tactical calls |
@@ -56,7 +56,20 @@ The default HUD tells you what is happening. A race engineer should help you dec
 | Strategy guardrails | Suppressed routine terminal-lap box calls, stronger degradation evidence and short-lived tactical opportunity latching |
 | Adaptive layout | Dedicated race, qualifying and practice workspaces with separate tablet and desktop compositions |
 
-### New in V2.9
+### New in V3.0
+
+Private device pairing protects APIs, settings and live streams. Malformed packets
+cannot masquerade as healthy telemetry. Lost acknowledgements recover automatically,
+and essential speech failures retry once before showing an audio warning.
+
+Android driving mode keeps critical information readable and requests an active
+screen. The interface is consistently English, fonts are served locally, and
+radio requires a local English voice. SQLite runs outside the capture thread;
+Analysis supports paginated history, export and explicit deletion.
+
+See [private pitwall setup and operations](docs/private-pitwall.md).
+
+### Included race-control and weather features
 
 Penalties and warnings have a dedicated radio queue, so contacts and routine calls
 do not silently replace them. The pitwall shows current race-control totals.
@@ -68,7 +81,7 @@ conditions or telemetry change. Dry pace and corner references are reset during
 weather transitions. Real wet-race calibration remains pending.
 
 See [weather strategy and radio rules](docs/active-engineer.md) for evidence
-thresholds, expiry and history. This release requires no database migration.
+thresholds, expiry and history. Race snapshots remain compatible; device access uses a separate local database.
 
 ## Quick start
 
@@ -87,7 +100,10 @@ npm ci
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173). For a phone or tablet, use this computer’s LAN IP with port `5173`. Vite proxies API and Socket.IO requests to the backend on port `3000`.
+Vite serves on port `5173` and proxies the backend on port `3000`. For interactive
+development, put the Vite origin behind an HTTPS reverse proxy and set `APP_ORIGIN`
+to that exact origin on the backend. Pairing intentionally has no insecure HTTP
+bypass. `npm run e2e` provides an isolated HTTPS test environment after building.
 
 ### Run the production build
 
@@ -96,11 +112,14 @@ npm run build
 npm start
 ```
 
-Open [http://localhost:3000](http://localhost:3000), or the LAN address shown in Settings. `PORT` changes the production HTTP port; `UDP_PORT` changes the default telemetry port. The hosted deployment uses HTTP port `3469`.
+Serve the backend through an HTTPS reverse proxy matching `APP_ORIGIN`, then run
+`npm run pair` on the server and open the generated link on your device. `PORT`
+changes the backend port; `UDP_PORT` changes the telemetry port. The hosted
+deployment uses backend port `3469`. HTTP dashboard access alone cannot authenticate.
 
 ### Try it without a console
 
-Open **Settings** and enable **Demo mode**. A simulated race immediately feeds every screen, so you can evaluate the dashboard and radio before configuring telemetry.
+Open **Settings**, enable **Demo mode**, then select **Apply settings**. A simulated race feeds every screen, so you can evaluate the dashboard and radio before configuring telemetry.
 
 ## Connect F1 25
 
@@ -149,6 +168,8 @@ The backend validates F1 25 packets, normalizes partial updates into one `RaceSt
 | `npm run check` | Type-check backend and frontend |
 | `npm run build` | Create production frontend and backend builds |
 | `npm start` | Serve the production build |
+| `npm run pair` | Generate a ten-minute device pairing link |
+| `npm run e2e` | HTTPS browser tests for phone and tablet |
 | `npm run replay -- --session 12` | Re-run the engineer against a saved session |
 
 See [active engineer and delivery history](docs/active-engineer.md) for radio behavior, APIs and read-only replay.
@@ -159,24 +180,26 @@ Saved-session diagnostics are also available through `/api/sessions/:id/report`,
 
 Telemetry and session history are written only to `data/` on the machine running the app. That directory, SQLite files, logs, environment files and build outputs are excluded from Git.
 
-This project does not use an LLM, speech recognition, external telemetry service or cloud database. Voice output uses the browser's built-in speech synthesis. Automatic selection prefers a local English voice; availability depends on the browser and operating system, and remote voices may use their provider’s service.
+This project does not use an LLM, speech recognition, external telemetry service or cloud database. Voice output uses the browser's built-in speech synthesis. Only local English voices are selected; availability depends on the browser and operating system. Install an offline English voice before enabling radio.
 
 Enable radio from the browser with a user gesture. Refresh existing tabs after upgrading. Analysis separates queue delay from speech-engine startup; STARTED/COMPLETED callbacks do not prove that sound was audible. See [radio behavior and diagnostics](docs/active-engineer.md).
 
-A public deployment exposes the dashboard and its APIs through the configured hostname. Session data remains in server-side SQLite.
+The configured HTTPS hostname serves a private dashboard. Session data remains in
+server-side SQLite; every device must be paired. Raw diagnostic packets are not
+exposed. See [access and recovery](docs/private-pitwall.md).
 
 ## Roadmap
 
 The [Brazil session review](docs/brazil-session-5-review.md) documents the baseline and the evidence behind these priorities. These improvements are still pending:
 
-- Stabilize thermal mode changes with sustained evidence and separate entry/exit thresholds
+- Calibrate thermal hysteresis against real-race recordings
 - Improve rejoin confidence when several rivals stop together
 - Validate finish/classification handling with complete end-of-race recordings
 - Add factual post-push and stint feedback from comparable laps
 
 - More circuit-aware corner coaching built from lap deltas
 - Calibrate mixed-weather strategy with real wet-race recordings and improve safety-car pit decisions
-- Session comparison and export
+- Cross-session comparison
 - Broader validation against real F1 25 packet captures
 - Installable desktop/mobile packaging
 

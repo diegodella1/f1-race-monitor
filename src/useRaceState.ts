@@ -6,15 +6,25 @@ const empty:RaceState={status:'WAITING',sessionUid:'',sessionLinkId:0,sessionTim
 export function useRaceState(){
   const [state,setState]=useState(empty);
   useEffect(()=>{
-    const abort=new AbortController();let receivedStream=false;
-    fetch('/api/state',{signal:abort.signal}).then(r=>r.json()).then(snapshot=>{if(!receivedStream&&!abort.signal.aborted)setState(snapshot);}).catch(()=>{});
-    const socket=io();
-    socket.on('connect',()=>socket.emit('raceStreamReady'));
+    const abort=new AbortController();let receivedStream=false,lastReceivedAt=Date.now(),snapshot=empty,analysisBusy=false;let analysis:RaceState['coach']|null=null;
+    const update=()=>{const elapsed=Date.now()-lastReceivedAt;setState({...snapshot,coach:location.pathname==='/analysis'&&analysis?analysis:snapshot.coach,transport:{connected:socket.connected,stale:elapsed>2500,lastReceivedAt,clockOffsetMs:snapshot.serverTime===undefined?0:snapshot.serverTime-lastReceivedAt},telemetry:{...snapshot.telemetry,ageMs:snapshot.telemetry.ageMs===null?null:snapshot.telemetry.ageMs+elapsed}});};
+    fetch('/api/state',{signal:AbortSignal.any([abort.signal,AbortSignal.timeout(8000)])}).then(r=>r.json()).then(value=>{if(!receivedStream&&!abort.signal.aborted&&value.sessionUid!==undefined){lastReceivedAt=Date.now();applySnapshot(value);}}).catch(()=>{});
+    const socket=io({transports:['websocket']});
+    function applySnapshot(value:RaceState){if(value.sessionUid!==snapshot.sessionUid||value.sessionLinkId!==snapshot.sessionLinkId)analysis=null;snapshot=value;update();}
+    socket.on('streamReset',()=>{socket.disconnect();socket.connect();});
+    socket.on('connect_error',()=>{void fetch('/api/auth/me').then(r=>{if(r.status===401)window.dispatchEvent(new Event('pairing-required'));}).catch(()=>{});});
+    socket.on('connect',()=>{update();socket.emit('raceStreamReady');});
     socket.on('raceState',(snapshot:RaceState,ack?:()=>void)=>{
-      receivedStream=true;setState(snapshot);if(typeof ack==='function')ack();
+      receivedStream=true;lastReceivedAt=Date.now();applySnapshot(snapshot);if(typeof ack==='function')ack();
     });
     socket.on('disconnect',()=>setState(previous=>({...previous,status:'PAUSED'})));
-    return()=>{abort.abort();socket.disconnect();};
+    const timer=setInterval(()=>{
+      update();
+      if(location.pathname!=='/analysis'||document.visibilityState!=='visible'||analysisBusy)return;
+      analysisBusy=true;
+      void fetch('/api/analysis',{signal:AbortSignal.any([abort.signal,AbortSignal.timeout(8000)])}).then(r=>r.ok?r.json():null).then(data=>{if(data&&data.sessionUid===snapshot.sessionUid&&data.sessionLinkId===snapshot.sessionLinkId){analysis=data.coach;update();}}).catch(()=>{}).finally(()=>{analysisBusy=false;});
+    },1000);
+    return()=>{clearInterval(timer);abort.abort();socket.disconnect();};
   },[]);
   return state;
 }

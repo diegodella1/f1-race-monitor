@@ -1,65 +1,76 @@
 # Deployment on Diego's server
 
-- Public URL: https://f12025.diegodella.ar
-- HTTP origin: http://127.0.0.1:3469
-- LAN dashboard: http://192.168.1.14:3469
+- HTTPS dashboard: https://f12025.diegodella.ar
+- Internal HTTP origin: http://127.0.0.1:3469
 - Game telemetry: 192.168.1.14, UDP port 20777
 - Service: `f1-race-monitor.service`
-- Persistent sessions and settings: `data/f1-monitor.sqlite`
+- Sessions/settings: `data/f1-monitor.sqlite`
+- Paired devices: `data/devices.sqlite`
 
-The existing Cloudflare tunnel routes the public hostname to port 3469,
-including Socket.IO. The game sends UDP directly over the local network.
+The Cloudflare tunnel routes HTTPS and WebSocket traffic to loopback port 3469.
+Set `APP_ORIGIN` to the exact external HTTPS origin (the hostname above is the
+default). LAN HTTP cannot authenticate; open the HTTPS dashboard on every device.
+Game UDP continues directly over the LAN.
 
 ## Update
 
-Run `npm ci`, `npm run check` and `npm test`. Compile into an ignored staging
-directory so production continues serving a complete build:
+Run `npm ci`, `npm run check` and `npm test`. Compile separately while production
+continues serving the previous complete build:
 
 ```bash
-node node_modules/typescript/bin/tsc -p server/tsconfig.json --outDir work/release/dist-server
-node node_modules/vite/bin/vite.js build --outDir work/release/dist
+node node_modules/typescript/bin/tsc -p server/tsconfig.json --outDir work/redteam-release/dist-server
+node node_modules/vite/bin/vite.js build --outDir work/redteam-release/dist
+npx playwright install chromium
+E2E_BUILD_DIR=work/redteam-release npm run e2e
 ```
 
-Keep copies of the current `dist/` and `dist-server/` under a dated `work/` backup.
-Stop the service, copy SQLite together with any WAL/SHM files, replace both build
-directories with the staged artifacts, then start the service. Keep file access
-compatible with the service user `diego`. If startup or verification fails, stop
-the service, restore both previous build directories and start again.
-Record the deployed Git commit and backup location under `work/`.
+Run the isolated soak with `node scripts/run-redteam-soak.mjs` for substantial
+capture, stream or persistence changes. Review the result before deploying.
 
-## Verify
+The release script preserves both previous builds, stops the service, backs up
+both SQLite databases and sidecar files, then installs the staged artifacts:
 
 ```bash
-systemctl status f1-race-monitor.service
-curl --fail http://127.0.0.1:3469/api/state
-curl --fail https://f12025.diegodella.ar/api/state
-journalctl -u f1-race-monitor.service -n 30 --no-pager
+python3 scripts/deploy_release.py work/redteam-release
 ```
 
-Also open `/analysis`, verify that radio history loads, and check a browser's
-Socket.IO connection. `WAITING` is healthy when the game is not sending telemetry.
-Refresh existing browser tabs after deployment to load the new radio and stream
-protocol. Test audio with a user gesture and an available English voice.
+It requires permission to stop/start the service through `sudo -n systemctl`.
+Startup checks include loopback health, rejection of unauthenticated API access
+and an authenticated operations request. Failure restores the previous builds. If those builds predate authentication,
+the service remains stopped until public access is restricted.
+It records the source commit and backup path in `work/deployed-release.json`.
 
-## Release rollback
+## Verify and pair
 
-Stop the service, restore the previous `dist/` and `dist-server/`, then start the
-service and repeat the checks above. Keep the current database: the 2.7 migration
-adds radio tables and indexes without removing existing session tables, and 2.8/2.9
-require no additional schema migration. Reverting application code does not
-require reverting the database or removing the tunnel route.
+```bash
+systemctl is-active f1-race-monitor.service
+curl --fail http://127.0.0.1:3469/api/health
+curl --silent --output /dev/null --write-out '%{http_code}\n' https://f12025.diegodella.ar/api/state
+npm run pair
+```
 
-Retain the database backup for recovery. Restoring it would discard sessions
-recorded since that backup, so only do that when database recovery is intended.
-Build backups belong under ignored `work/`; never commit databases or artifacts.
+The public state request must return **401**. Open the generated one-time link on
+the tablet within ten minutes and name the device. Refresh old tabs after release.
+Verify live connection, Analysis history and Settings → Paired devices. `WAITING`
+is healthy when the game is not sending telemetry. Revocation must close that
+device's active connection.
 
-## Repository and service configuration
+Test a local English voice with a user gesture. Driving mode requests a wake
+lock; actual sound and screen behavior must be checked on the Android device.
+Browser callbacks and automated viewport tests do not establish audible playback.
+
+## Rollback and recovery
+
+Restore previous `dist/` and `dist-server/` while the service is stopped, then
+restart and verify. Keep current databases to retain new history and pairings.
+A deliberate downgrade from 3.0 to 2.x removes application authentication:
+restrict public access before such a rollback.
+
+Restore database backups only for database recovery: doing so discards subsequent
+sessions and device changes. Never commit databases, pairing links or build
+artifacts. Backups and validation artifacts belong under ignored `work/`.
 
 The tracked [systemd unit](f1-race-monitor.service) is specific to this host.
-Adjust its user, paths and ports before using it elsewhere. After changing an
-installed unit, run `sudo systemctl daemon-reload` before restarting the service.
-Normal application releases need only a service restart after build replacement.
-
-GitHub CI validates tests, types and build on `main` and pull requests. It does
-not deploy to this server automatically. Publishing source and deploying builds
-are separate steps; record the deployed commit after successful verification.
+Changing its installed configuration requires `sudo systemctl daemon-reload`;
+ordinary build releases require only a restart. GitHub CI runs tests, type checks,
+build and phone/tablet browser tests. Source publication does not deploy the app.
